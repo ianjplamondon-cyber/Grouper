@@ -211,6 +211,9 @@ end
 -- Communication functions
 function Grouper:SendComm(messageType, data, distribution, target)
     if not self.channelJoined then
+        if self.debugMode then
+            self:Print("DEBUG: Cannot send message - not connected to channel")
+        end
         return
     end
     
@@ -224,21 +227,52 @@ function Grouper:SendComm(messageType, data, distribution, target)
     
     local serializedData = self:Serialize(message)
     
-    -- Default to channel communication
-    distribution = distribution or "CHANNEL"
-    target = target or ADDON_CHANNEL
-    
-    self:SendCommMessage(COMM_PREFIX, serializedData, distribution, target)
+    -- Handle different distribution types
+    if not distribution or distribution == "CHANNEL" then
+        -- Get the channel number for our custom channel
+        local channelIndex = GetChannelName(ADDON_CHANNEL)
+        if channelIndex > 0 then
+            self:SendCommMessage(COMM_PREFIX, serializedData, "CHANNEL", channelIndex)
+            if self.debugMode then
+                self:Print(string.format("DEBUG: Sent %s to channel %d", messageType, channelIndex))
+            end
+        else
+            if self.debugMode then
+                self:Print("DEBUG: Channel not found, cannot send message")
+            end
+        end
+    else
+        -- For whisper or other distribution types
+        self:SendCommMessage(COMM_PREFIX, serializedData, distribution, target)
+        if self.debugMode then
+            self:Print(string.format("DEBUG: Sent %s via %s to %s", messageType, distribution, target or "unknown"))
+        end
+    end
 end
 
 function Grouper:OnCommReceived(prefix, message, distribution, sender)
-    if prefix ~= COMM_PREFIX or sender == UnitName("player") then
+    if prefix ~= COMM_PREFIX then
         return
+    end
+    
+    if sender == UnitName("player") then
+        return -- Ignore our own messages
+    end
+    
+    if self.debugMode then
+        self:Print(string.format("DEBUG: Received %s message from %s via %s", prefix, sender, distribution))
     end
     
     local success, data = self:Deserialize(message)
     if not success then
+        if self.debugMode then
+            self:Print("DEBUG: Failed to deserialize message")
+        end
         return
+    end
+    
+    if self.debugMode then
+        self:Print(string.format("DEBUG: Message type: %s", data.type or "unknown"))
     end
     
     -- Update player list
@@ -250,6 +284,9 @@ function Grouper:OnCommReceived(prefix, message, distribution, sender)
     
     -- Handle different message types
     if data.type == "GROUP_UPDATE" then
+        if self.debugMode then
+            self:Print(string.format("DEBUG: Processing GROUP_UPDATE from %s", sender))
+        end
         self:HandleGroupUpdate(data.data, sender)
     elseif data.type == "GROUP_REMOVE" then
         self:HandleGroupRemove(data.data, sender)
@@ -257,6 +294,10 @@ function Grouper:OnCommReceived(prefix, message, distribution, sender)
         self:HandleDataRequest(sender)
     elseif data.type == "PRESENCE" then
         self:HandlePresence(data.data, sender)
+    elseif data.type == "TEST" then
+        if self.debugMode then
+            self:Print(string.format("DEBUG: Received test message: %s", data.data.message or "no message"))
+        end
     end
     
     -- Refresh UI if it's open
@@ -468,8 +509,19 @@ function Grouper:SlashCommand(input)
             self.channelJoined = false
             self:JoinGrouperChannel()
         end
+    elseif command == "test" then
+        self:Print("Testing communication...")
+        self:SendComm("TEST", {message = "Hello from " .. UnitName("player")})
+    elseif command == "debug" then
+        if args[2] and args[2]:lower() == "off" then
+            self.debugMode = false
+            self:Print("Debug mode disabled")
+        else
+            self.debugMode = true
+            self:Print("Debug mode enabled")
+        end
     else
-        self:Print("Usage: /grouper [show|config|join|status]")
+        self:Print("Usage: /grouper [show|config|join|status|test|debug]")
     end
 end
 
