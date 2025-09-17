@@ -7,7 +7,7 @@ local LibDBIcon = LibStub("LibDBIcon-1.0")
 
 -- Constants
 local ADDON_NAME = "Grouper"
-local COMM_PREFIX = "Grouper"
+local COMM_PREFIX = "GRPR"
 local ADDON_CHANNEL = "Grouper"
 local ADDON_VERSION = "1.0.0"
 
@@ -59,6 +59,13 @@ local DUNGEONS = {
 Grouper.groups = {}
 Grouper.players = {}
 Grouper.channelJoined = false
+Grouper.currentGroupInfo = {
+    inParty = false,
+    inRaid = false,
+    isLeader = false,
+    partySize = 0,
+    timestamp = 0
+}
 
 -- Default database structure
 local defaults = {
@@ -80,6 +87,9 @@ local defaults = {
                 quest = true,
                 other = true,
             },
+        },
+        debug = {
+            enabled = false,
         },
     },
 }
@@ -113,9 +123,6 @@ function Grouper:OnInitialize()
     -- Register chat commands
     self:RegisterChatCommand("grouper", "SlashCommand")
     
-    -- Register for communication
-    self:RegisterComm(COMM_PREFIX)
-    
     -- Initialize minimap icon
     LibDBIcon:Register(ADDON_NAME, dataObj, self.db.profile.minimap)
     
@@ -125,62 +132,111 @@ function Grouper:OnInitialize()
     self:Print("Loaded! Type /grouper to open the group finder.")
 end
 
+-- Helper function for debug checking
+function Grouper:IsDebugEnabled()
+    return self.db and self.db.profile and self.db.profile.debug and self.db.profile.debug.enabled
+end
+
 function Grouper:OnEnable()
     -- Register events
     self:RegisterEvent("PLAYER_ENTERING_WORLD", "OnPlayerEnteringWorld")
-    self:RegisterEvent("PARTY_MEMBERS_CHANGED", "OnPartyChanged")
+    
+    -- Classic Era event names for group changes
+    self:RegisterEvent("PARTY_INVITE_REQUEST", "OnPartyChanged")
+    self:RegisterEvent("PARTY_MEMBER_ENABLE", "OnPartyChanged")
+    self:RegisterEvent("PARTY_MEMBER_DISABLE", "OnPartyChanged")
+    self:RegisterEvent("PARTY_LEADER_CHANGED", "OnPartyChanged")
     self:RegisterEvent("RAID_ROSTER_UPDATE", "OnPartyChanged")
+    
     self:RegisterEvent("CHAT_MSG_CHANNEL_JOIN", "OnChannelJoin")
     self:RegisterEvent("CHAT_MSG_CHANNEL_LEAVE", "OnChannelLeave")
     
-    -- Try to join the Grouper channel
-    self:ScheduleTimer("JoinGrouperChannel", 2)
+    -- Register for channel messages to receive our protocol messages
+    self:RegisterEvent("CHAT_MSG_CHANNEL", "OnChannelMessage")
+    
+    -- Check if already in channel, but don't auto-join
+    self:ScheduleTimer("CheckInitialChannelStatus", 3)
     
     -- Start periodic tasks
     self:ScheduleRepeatingTimer("CleanupOldGroups", 60) -- Clean up every minute
     self:ScheduleRepeatingTimer("BroadcastPresence", 300) -- Broadcast presence every 5 minutes
 end
 
-function Grouper:OnPlayerEnteringWorld()
-    -- Join Grouper channel when entering world
-    self:ScheduleTimer("JoinGrouperChannel", 5)
+function Grouper:CheckInitialChannelStatus()
+    local channelIndex = GetChannelName(ADDON_CHANNEL)
+    if channelIndex > 0 then
+        self.channelJoined = true
+        self:Print("Connected to Grouper channel!")
+    else
+        self:Print("Use /grouper show to open the group finder (will auto-join channel)")
+    end
 end
 
-function Grouper:JoinGrouperChannel()
-    if not self.channelJoined then
-        local channelIndex = GetChannelName(ADDON_CHANNEL)
-        if channelIndex == 0 then
-            -- Channel doesn't exist, try to join/create it
-            local success = JoinChannelByName(ADDON_CHANNEL)
-            if success then
-                self:Print("Joining Grouper channel for group communication...")
-                -- Check again in a moment to see if we joined
-                self:ScheduleTimer("CheckChannelStatus", 2)
-            else
-                self:Print("Failed to join Grouper channel. Retrying in 10 seconds...")
-                self:ScheduleTimer("JoinGrouperChannel", 10)
-            end
-        else
-            -- Channel exists, mark as joined
-            self.channelJoined = true
-            self:Print("Connected to Grouper channel. You can now see groups from other addon users!")
-            -- Request current group data from other users
-            self:SendComm("REQUEST_DATA", {type = "request", timestamp = time()})
+function Grouper:OnPlayerEnteringWorld()
+    -- Just check channel status, don't auto-join
+    self:ScheduleTimer("CheckInitialChannelStatus", 5)
+end
+
+function Grouper:EnsureChannelJoined()
+    -- Check if we're already in the channel
+    local channelIndex = GetChannelName(ADDON_CHANNEL)
+    if channelIndex > 0 then
+        self.channelJoined = true
+        return -- Already connected
+    end
+    
+    -- Not in channel, automatically join
+    if not InCombatLockdown() then
+        if self.db.profile.debug.enabled then
+            self:Print("DEBUG: Auto-joining Grouper channel when opening UI")
         end
+        
+        -- Execute the join command using the slash command system
+        SlashCmdList["JOIN"]("Grouper")
+        
+        -- Give feedback to user
+        self:Print("Joining Grouper channel for group communication...")
+        
+        -- Schedule a check to see if it worked
+        self:ScheduleTimer("CheckChannelJoinResult", 2)
+    else
+        -- In combat, just inform the user
+        self:Print("Cannot join channel during combat. Please try again after combat or manually type: /join Grouper")
+    end
+end
+
+function Grouper:CheckChannelJoinResult()
+    local channelIndex = GetChannelName(ADDON_CHANNEL)
+    if channelIndex > 0 then
+        self.channelJoined = true
+        self:Print("Successfully connected to Grouper channel!")
+    else
+        self:Print("Failed to auto-join channel. Please manually type: /join Grouper")
     end
 end
 
 function Grouper:CheckChannelStatus()
+    -- Don't check during combat
+    if InCombatLockdown() then
+        if self.db.profile.debug.enabled then
+            self:Print("DEBUG: Cannot check channel during combat, retrying in 5 seconds")
+        end
+        self:ScheduleTimer("CheckChannelStatus", 5)
+        return
+    end
+    
     if not self.channelJoined then
-        local channelIndex = GetChannelName(ADDON_CHANNEL)
-        if channelIndex > 0 then
+        local success, channelIndex = pcall(GetChannelName, ADDON_CHANNEL)
+        if success and channelIndex > 0 then
             self.channelJoined = true
             self:Print("Successfully connected to Grouper channel!")
             -- Request current group data from other users
             self:SendComm("REQUEST_DATA", {type = "request", timestamp = time()})
         else
             -- Still not connected, try again
-            self:Print("Still connecting to Grouper channel...")
+            if self.db.profile.debug.enabled then
+                self:Print("DEBUG: Still connecting to Grouper channel...")
+            end
             self:ScheduleTimer("JoinGrouperChannel", 5)
         end
     end
@@ -203,15 +259,90 @@ function Grouper:OnChannelLeave(event, text, playerName, languageName, channelNa
     end
 end
 
-function Grouper:OnPartyChanged()
-    -- Update our group status and broadcast if needed
+function Grouper:OnPartyChanged(event)
+    if self.db.profile.debug.enabled then
+        self:Print(string.format("DEBUG: Group changed event: %s", event or "unknown"))
+    end
+    
+    -- Get current group information
+    local inParty = GetNumPartyMembers() > 0
+    local inRaid = GetNumRaidMembers() > 0
+    local isLeader = false
+    
+    if inRaid then
+        isLeader = IsRaidLeader()
+    elseif inParty then
+        isLeader = IsPartyLeader()
+    end
+    
+    if self.db.profile.debug.enabled then
+        self:Print(string.format("DEBUG: Party: %s, Raid: %s, Leader: %s", 
+            tostring(inParty), tostring(inRaid), tostring(isLeader)))
+    end
+    
+    -- Update our current group status
+    self.currentGroupInfo = {
+        inParty = inParty,
+        inRaid = inRaid,
+        isLeader = isLeader,
+        partySize = inRaid and GetNumRaidMembers() or (inParty and GetNumPartyMembers() or 0),
+        timestamp = time()
+    }
+    
+    -- If we're no longer in a group, we can create new groups
+    -- If we joined a group, we might need to remove our posted groups
+    if inParty or inRaid then
+        -- We're in a group - consider removing any groups we posted as LFG
+        self:HandleJoinedGroup()
+    else
+        -- We left a group - we can post new groups again
+        self:HandleLeftGroup()
+    end
+    
+    -- Update our presence broadcast
     self:BroadcastPresence()
+    
+    -- Refresh UI if it's open
+    if self.mainFrame and self.mainFrame:IsShown() then
+        self:RefreshGroupList()
+    end
+end
+
+function Grouper:HandleJoinedGroup()
+    -- Player joined a group - they might not need their LFG posts anymore
+    if self.db.profile.debug.enabled then
+        self:Print("DEBUG: Player joined a group")
+    end
+    
+    -- Check if we have any active groups posted
+    local myGroups = {}
+    for i, group in ipairs(self.groups) do
+        if group.leader == UnitName("player") then
+            table.insert(myGroups, group)
+        end
+    end
+    
+    if #myGroups > 0 then
+        -- Ask the player if they want to remove their posted groups
+        -- For now, just notify them
+        self:Print(string.format("You joined a group! You have %d group(s) posted. Use /grouper show to manage them.", #myGroups))
+    end
+end
+
+function Grouper:HandleLeftGroup()
+    -- Player left a group - they can post new groups again
+    if self.db.profile.debug.enabled then
+        self:Print("DEBUG: Player left a group")
+    end
+    
+    -- They can now create new groups if they want
+    -- No automatic action needed, just update state
 end
 
 -- Communication functions
 function Grouper:SendComm(messageType, data, distribution, target)
     if not self.channelJoined then
-        if self.debugMode then
+        if self.db.profile.debug.enabled then
             self:Print("DEBUG: Cannot send message - not connected to channel")
         end
         return
@@ -227,52 +358,104 @@ function Grouper:SendComm(messageType, data, distribution, target)
     
     local serializedData = self:Serialize(message)
     
+    if self.db.profile.debug.enabled then
+        self:Print(string.format("DEBUG: Serialized data length: %d", string.len(serializedData)))
+        self:Print(string.format("DEBUG: Serialized preview: %s", string.sub(serializedData, 1, 50) .. "..."))
+    end
+    
     -- Handle different distribution types
     if not distribution or distribution == "CHANNEL" then
         -- Get the channel number for our custom channel
         local channelIndex = GetChannelName(ADDON_CHANNEL)
         if channelIndex > 0 then
-            self:SendCommMessage(COMM_PREFIX, serializedData, "CHANNEL", channelIndex)
-            if self.debugMode then
-                self:Print(string.format("DEBUG: Sent %s to channel %d", messageType, channelIndex))
+            -- Use regular SendChatMessage with our own protocol (like Greenwall does)
+            local protocolMessage = string.format("GRPR#%s#%s", messageType, serializedData)
+            
+            -- Check message length (WoW has a ~255 character limit for chat messages)
+            local messageLength = string.len(protocolMessage)
+            if messageLength > 255 then
+                if self.db.profile.debug.enabled then
+                    self:Print(string.format("DEBUG: Message too long (%d chars), truncating", messageLength))
+                end
+                protocolMessage = string.sub(protocolMessage, 1, 255)
+            end
+            
+            if self.db.profile.debug.enabled then
+                self:Print(string.format("DEBUG: About to send via SendChatMessage: channel=%d", channelIndex))
+                self:Print(string.format("DEBUG: Protocol message length: %d", messageLength))
+                self:Print(string.format("DEBUG: Message preview: %s", string.sub(protocolMessage, 1, 50) .. "..."))
+            end
+            
+            -- Use pcall to catch any errors
+            local success, errorMsg = pcall(SendChatMessage, protocolMessage, "CHANNEL", nil, channelIndex)
+            
+            if success then
+                if self.db.profile.debug.enabled then
+                    self:Print(string.format("DEBUG: SendChatMessage sent successfully to channel %d", channelIndex))
+                end
+            else
+                if self.db.profile.debug.enabled then
+                    self:Print(string.format("DEBUG: SendChatMessage failed: %s", tostring(errorMsg)))
+                end
             end
         else
-            if self.debugMode then
+            if self.db.profile.debug.enabled then
                 self:Print("DEBUG: Channel not found, cannot send message")
             end
         end
     else
-        -- For whisper or other distribution types
+        -- For whisper or other distribution types, still use AceComm
         self:SendCommMessage(COMM_PREFIX, serializedData, distribution, target)
-        if self.debugMode then
+        if self.db.profile.debug.enabled then
             self:Print(string.format("DEBUG: Sent %s via %s to %s", messageType, distribution, target or "unknown"))
         end
     end
 end
 
-function Grouper:OnCommReceived(prefix, message, distribution, sender)
-    if prefix ~= COMM_PREFIX then
+function Grouper:OnChannelMessage(event, message, sender, language, channelString, target, flags, unknown, channelNumber, channelName, instanceID)
+    -- Only process messages from our Grouper channel
+    local grouperChannelIndex = GetChannelName(ADDON_CHANNEL)
+    if channelNumber ~= grouperChannelIndex then
         return
     end
     
-    if sender == UnitName("player") then
-        return -- Ignore our own messages
+    -- Check if this is our protocol message
+    if not message:match("^GRPR#") then
+        return -- Not our protocol
     end
     
-    if self.debugMode then
-        self:Print(string.format("DEBUG: Received %s message from %s via %s", prefix, sender, distribution))
+    if self.db.profile.debug.enabled then
+        self:Print(string.format("DEBUG: Received channel message from %s: %s", sender, message))
     end
     
-    local success, data = self:Deserialize(message)
-    if not success then
-        if self.debugMode then
-            self:Print("DEBUG: Failed to deserialize message")
+    -- Parse our protocol: GRPR#messageType#serializedData
+    local _, messageType, serializedData = strsplit("#", message, 3)
+    if not messageType or not serializedData then
+        if self.db.profile.debug.enabled then
+            self:Print("DEBUG: Invalid protocol message format")
         end
         return
     end
     
-    if self.debugMode then
-        self:Print(string.format("DEBUG: Message type: %s", data.type or "unknown"))
+    if self.db.profile.debug.enabled then
+        self:Print(string.format("DEBUG: Parsed message type: %s from %s", messageType, sender))
+    end
+    
+    local success, data = self:Deserialize(serializedData)
+    if not success then
+        if self.db.profile.debug.enabled then
+            self:Print("DEBUG: Failed to deserialize message data")
+        end
+        return
+    end
+    
+    if self.db.profile.debug.enabled then
+        self:Print(string.format("DEBUG: Deserialized message from %s", sender))
+    end
+    
+    -- Allow TEST messages from ourselves for debugging, but ignore other messages from ourselves
+    if sender == UnitName("player") and data.type ~= "TEST" then
+        return -- Ignore our own non-test messages
     end
     
     -- Update player list
@@ -284,7 +467,7 @@ function Grouper:OnCommReceived(prefix, message, distribution, sender)
     
     -- Handle different message types
     if data.type == "GROUP_UPDATE" then
-        if self.debugMode then
+        if self.db.profile.debug.enabled then
             self:Print(string.format("DEBUG: Processing GROUP_UPDATE from %s", sender))
         end
         self:HandleGroupUpdate(data.data, sender)
@@ -295,7 +478,7 @@ function Grouper:OnCommReceived(prefix, message, distribution, sender)
     elseif data.type == "PRESENCE" then
         self:HandlePresence(data.data, sender)
     elseif data.type == "TEST" then
-        if self.debugMode then
+        if self.db.profile.debug.enabled then
             self:Print(string.format("DEBUG: Received test message: %s", data.data.message or "no message"))
         end
     end
@@ -489,8 +672,7 @@ function Grouper:SlashCommand(input)
     elseif command == "config" or command == "options" then
         self:ShowConfig()
     elseif command == "join" then
-        self.channelJoined = false -- Force a rejoin attempt
-        self:JoinGrouperChannel()
+        self:EnsureChannelJoined()
     elseif command == "status" then
         local channelIndex = GetChannelName(ADDON_CHANNEL)
         local actuallyInChannel = channelIndex > 0
@@ -499,6 +681,8 @@ function Grouper:SlashCommand(input)
             actuallyInChannel and "Connected" or "Disconnected", channelIndex))
         self:Print(string.format("Internal Status: %s", 
             self.channelJoined and "Connected" or "Disconnected"))
+        self:Print(string.format("Debug Mode: %s", 
+            self.db.profile.debug.enabled and "ON" or "OFF"))
         
         -- Auto-fix if there's a mismatch
         if actuallyInChannel and not self.channelJoined then
@@ -511,15 +695,40 @@ function Grouper:SlashCommand(input)
         end
     elseif command == "test" then
         self:Print("Testing communication...")
+        
+        -- First test with a simple message
+        local channelIndex = GetChannelName(ADDON_CHANNEL)
+        if channelIndex > 0 then
+            -- Test 1: Simple visible message
+            local success1, err1 = pcall(SendChatMessage, "TEST: Simple message", "CHANNEL", nil, channelIndex)
+            self:Print(string.format("Simple test: %s %s", success1 and "SUCCESS" or "FAILED", err1 or ""))
+            
+            -- Test 2: Our protocol with minimal data
+            local testMessage = "GRPR#TEST#hello"
+            local success2, err2 = pcall(SendChatMessage, testMessage, "CHANNEL", nil, channelIndex)
+            self:Print(string.format("Protocol test: %s %s", success2 and "SUCCESS" or "FAILED", err2 or ""))
+        end
+        
+        -- Test 3: Full addon communication
         self:SendComm("TEST", {message = "Hello from " .. UnitName("player")})
+        
+        -- Also send a visible chat message to verify channel communication
+        local channelIndex = GetChannelName(ADDON_CHANNEL)
+        if channelIndex > 0 then
+            SendChatMessage("TEST: Grouper addon communication test from " .. UnitName("player"), "CHANNEL", nil, channelIndex)
+            self:Print(string.format("Sent visible test message to channel %d", channelIndex))
+        else
+            self:Print("ERROR: Cannot find Grouper channel for visible test")
+        end
     elseif command == "debug" then
         if args[2] and args[2]:lower() == "off" then
-            self.debugMode = false
+            self.db.profile.debug.enabled = false
             self:Print("Debug mode disabled")
         else
-            self.debugMode = true
+            self.db.profile.debug.enabled = true
             self:Print("Debug mode enabled")
         end
+        self:Print(string.format("Debug is now %s", self.db.profile.debug.enabled and "ON" or "OFF"))
     else
         self:Print("Usage: /grouper [show|config|join|status|test|debug]")
     end
@@ -534,9 +743,12 @@ function Grouper:ToggleMainWindow()
     if self.mainFrame and self.mainFrame:IsShown() then
         self.mainFrame:Hide()
     else
+        -- Check if we need to join the channel when opening UI
+        self:EnsureChannelJoined()
+        
         self:CreateMainWindow()
-        self.mainFrame:Show()
         self:RefreshGroupList()
+        self.mainFrame:Show()
     end
 end
 
@@ -997,7 +1209,18 @@ function Grouper:CreateGroupFrame(group)
     whisperButton:SetText("Whisper Leader")
     whisperButton:SetWidth(120)
     whisperButton:SetCallback("OnClick", function()
-        ChatFrame_SendTell(group.leader)
+        -- Classic-compatible whisper initiation
+        if ChatEdit_GetActiveWindow then
+            local editBox = ChatEdit_GetActiveWindow()
+            if editBox then
+                ChatEdit_ActivateChat(editBox)
+                editBox:SetText("/tell " .. group.leader .. " ")
+            end
+        else
+            -- Fallback for different Classic versions
+            DEFAULT_CHAT_FRAME.editBox:SetText("/tell " .. group.leader .. " ")
+            ChatEdit_ActivateChat(DEFAULT_CHAT_FRAME.editBox)
+        end
     end)
     buttonGroup:AddChild(whisperButton)
     

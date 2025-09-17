@@ -1,4 +1,4 @@
-## Interface: 11503
+## Interface: 11507
 ## Title: Grouper
 ## Notes: Help players find and create groups across your server using a shared communication channel
 ## Author: Grouper
