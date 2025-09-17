@@ -120,6 +120,11 @@ function Grouper:OnInitialize()
     -- Initialize database
     self.db = AceDB:New("GrouperDB", defaults, true)
     
+    -- Initialize storage
+    self.groups = {}
+    self.players = {}
+    self.multiPartMessages = {} -- Storage for incomplete multi-part messages
+    
     -- Register chat commands
     self:RegisterChatCommand("grouper", "SlashCommand")
     
@@ -160,6 +165,7 @@ function Grouper:OnEnable()
     -- Start periodic tasks
     self:ScheduleRepeatingTimer("CleanupOldGroups", 60) -- Clean up every minute
     self:ScheduleRepeatingTimer("BroadcastPresence", 300) -- Broadcast presence every 5 minutes
+    self:ScheduleRepeatingTimer("CleanupOldMultiPartMessages", 120) -- Clean up incomplete messages every 2 minutes
 end
 
 function Grouper:CheckInitialChannelStatus()
@@ -373,29 +379,33 @@ function Grouper:SendComm(messageType, data, distribution, target)
             
             -- Check message length (WoW has a ~255 character limit for chat messages)
             local messageLength = string.len(protocolMessage)
-            if messageLength > 255 then
+            local maxLength = 250 -- Leave some buffer
+            
+            if messageLength > maxLength then
+                -- Message is too long, split into multiple parts
                 if self.db.profile.debug.enabled then
-                    self:Print(string.format("DEBUG: Message too long (%d chars), truncating", messageLength))
+                    self:Print(string.format("DEBUG: Message too long (%d chars), splitting into parts", messageLength))
                 end
-                protocolMessage = string.sub(protocolMessage, 1, 255)
-            end
-            
-            if self.db.profile.debug.enabled then
-                self:Print(string.format("DEBUG: About to send via SendChatMessage: channel=%d", channelIndex))
-                self:Print(string.format("DEBUG: Protocol message length: %d", messageLength))
-                self:Print(string.format("DEBUG: Message preview: %s", string.sub(protocolMessage, 1, 50) .. "..."))
-            end
-            
-            -- Use pcall to catch any errors
-            local success, errorMsg = pcall(SendChatMessage, protocolMessage, "CHANNEL", nil, channelIndex)
-            
-            if success then
-                if self.db.profile.debug.enabled then
-                    self:Print(string.format("DEBUG: SendChatMessage sent successfully to channel %d", channelIndex))
-                end
+                self:SendMultiPartMessage(messageType, serializedData, channelIndex)
             else
+                -- Message fits in one part
                 if self.db.profile.debug.enabled then
-                    self:Print(string.format("DEBUG: SendChatMessage failed: %s", tostring(errorMsg)))
+                    self:Print(string.format("DEBUG: About to send via SendChatMessage: channel=%d", channelIndex))
+                    self:Print(string.format("DEBUG: Protocol message length: %d", messageLength))
+                    self:Print(string.format("DEBUG: Message preview: %s", string.sub(protocolMessage, 1, 50) .. "..."))
+                end
+                
+                -- Use pcall to catch any errors
+                local success, errorMsg = pcall(SendChatMessage, protocolMessage, "CHANNEL", nil, channelIndex)
+                
+                if success then
+                    if self.db.profile.debug.enabled then
+                        self:Print(string.format("DEBUG: SendChatMessage sent successfully to channel %d", channelIndex))
+                    end
+                else
+                    if self.db.profile.debug.enabled then
+                        self:Print(string.format("DEBUG: SendChatMessage failed: %s", tostring(errorMsg)))
+                    end
                 end
             end
         else
@@ -412,6 +422,42 @@ function Grouper:SendComm(messageType, data, distribution, target)
     end
 end
 
+function Grouper:SendMultiPartMessage(messageType, serializedData, channelIndex)
+    local maxDataLength = 200 -- Leave room for protocol headers
+    local messageId = tostring(time() .. math.random(1000, 9999)) -- Unique ID for this message
+    local totalLength = string.len(serializedData)
+    local numParts = math.ceil(totalLength / maxDataLength)
+    
+    if self.db.profile.debug.enabled then
+        self:Print(string.format("DEBUG: Splitting into %d parts, message ID: %s", numParts, messageId))
+    end
+    
+    for i = 1, numParts do
+        local startPos = (i - 1) * maxDataLength + 1
+        local endPos = math.min(i * maxDataLength, totalLength)
+        local dataPart = string.sub(serializedData, startPos, endPos)
+        
+        -- Multi-part protocol: GRPR_MP#messageId#partNum#totalParts#messageType#dataPart
+        local multiPartMessage = string.format("GRPR_MP#%s#%d#%d#%s#%s", messageId, i, numParts, messageType, dataPart)
+        
+        if self.db.profile.debug.enabled then
+            self:Print(string.format("DEBUG: Sending part %d/%d, length: %d", i, numParts, string.len(multiPartMessage)))
+        end
+        
+        local success, errorMsg = pcall(SendChatMessage, multiPartMessage, "CHANNEL", nil, channelIndex)
+        if not success then
+            if self.db.profile.debug.enabled then
+                self:Print(string.format("DEBUG: Failed to send part %d: %s", i, tostring(errorMsg)))
+            end
+            return
+        end
+    end
+    
+    if self.db.profile.debug.enabled then
+        self:Print(string.format("DEBUG: Sent all %d parts successfully", numParts))
+    end
+end
+
 function Grouper:OnChannelMessage(event, message, sender, language, channelString, target, flags, unknown, channelNumber, channelName, instanceID)
     -- Only process messages from our Grouper channel
     local grouperChannelIndex = GetChannelName(ADDON_CHANNEL)
@@ -420,12 +466,85 @@ function Grouper:OnChannelMessage(event, message, sender, language, channelStrin
     end
     
     -- Check if this is our protocol message
-    if not message:match("^GRPR#") then
+    if not message:match("^GRPR#") and not message:match("^GRPR_MP#") then
         return -- Not our protocol
     end
     
     if self.db.profile.debug.enabled then
-        self:Print(string.format("DEBUG: Received channel message from %s: %s", sender, message))
+        self:Print(string.format("DEBUG: Received channel message from %s: %s", sender, string.sub(message, 1, 100) .. "..."))
+    end
+    
+    -- Handle multi-part messages
+    if message:match("^GRPR_MP#") then
+        -- Multi-part protocol: GRPR_MP#messageId#partNum#totalParts#messageType#dataPart
+        local _, messageId, partNumStr, totalPartsStr, messageType, dataPart = strsplit("#", message, 6)
+        if not messageId or not partNumStr or not totalPartsStr or not messageType or not dataPart then
+            if self.db.profile.debug.enabled then
+                self:Print("DEBUG: Invalid multi-part message format")
+            end
+            return
+        end
+        
+        local partNum = tonumber(partNumStr)
+        local totalParts = tonumber(totalPartsStr)
+        
+        if self.db.profile.debug.enabled then
+            self:Print(string.format("DEBUG: Received part %d/%d of message %s from %s", partNum, totalParts, messageId, sender))
+        end
+        
+        -- Initialize multi-part storage if it doesn't exist
+        if not self.multiPartMessages then
+            self.multiPartMessages = {}
+        end
+        
+        -- Initialize this message's storage if it doesn't exist
+        if not self.multiPartMessages[messageId] then
+            self.multiPartMessages[messageId] = {
+                parts = {},
+                totalParts = totalParts,
+                messageType = messageType,
+                sender = sender,
+                timestamp = time()
+            }
+        end
+        
+        -- Store this part
+        self.multiPartMessages[messageId].parts[partNum] = dataPart
+        
+        -- Check if we have all parts
+        local receivedParts = 0
+        for i = 1, totalParts do
+            if self.multiPartMessages[messageId].parts[i] then
+                receivedParts = receivedParts + 1
+            end
+        end
+        
+        if receivedParts == totalParts then
+            -- Reassemble the message
+            local reassembledData = ""
+            for i = 1, totalParts do
+                reassembledData = reassembledData .. self.multiPartMessages[messageId].parts[i]
+            end
+            
+            if self.db.profile.debug.enabled then
+                self:Print(string.format("DEBUG: Reassembled complete message %s from %s, length: %d", messageId, sender, string.len(reassembledData)))
+            end
+            
+            -- Process the reassembled message as a regular message
+            local reassembledMessage = string.format("GRPR#%s#%s", messageType, reassembledData)
+            
+            -- Clean up storage
+            self.multiPartMessages[messageId] = nil
+            
+            -- Recursively call this function with the reassembled message
+            self:OnChannelMessage(event, reassembledMessage, sender, language, channelString, target, flags, unknown, channelNumber, channelName, instanceID)
+        else
+            if self.db.profile.debug.enabled then
+                self:Print(string.format("DEBUG: Waiting for more parts, have %d/%d", receivedParts, totalParts))
+            end
+        end
+        
+        return -- Multi-part message handled
     end
     
     -- Parse our protocol: GRPR#messageType#serializedData
@@ -556,13 +675,31 @@ function Grouper:RemoveGroup(groupId)
     return true
 end
 
+-- Helper function to strip realm name from player names for comparison
+function Grouper:StripRealmName(playerName)
+    if not playerName then
+        return playerName
+    end
+    
+    local name = strsplit("-", playerName)
+    return name
+end
+
 function Grouper:HandleGroupUpdate(groupData, sender)
     if self.db.profile.debug.enabled then
         self:Print(string.format("DEBUG: HandleGroupUpdate called - sender: %s, leader: %s", sender, groupData.leader or "nil"))
         self:Print(string.format("DEBUG: Group ID: %s, Title: %s", groupData.id or "nil", groupData.title or "nil"))
     end
     
-    if groupData.leader == sender then
+    -- Strip realm names for comparison
+    local senderName = self:StripRealmName(sender)
+    local leaderName = self:StripRealmName(groupData.leader)
+    
+    if self.db.profile.debug.enabled then
+        self:Print(string.format("DEBUG: Comparing stripped names - sender: %s, leader: %s", senderName, leaderName))
+    end
+    
+    if leaderName == senderName then
         self.groups[groupData.id] = groupData
         
         if self.db.profile.debug.enabled then
@@ -579,7 +716,7 @@ function Grouper:HandleGroupUpdate(groupData, sender)
         end
     else
         if self.db.profile.debug.enabled then
-            self:Print(string.format("DEBUG: Rejecting group update - sender mismatch"))
+            self:Print(string.format("DEBUG: Rejecting group update - sender mismatch (stripped: %s vs %s)", senderName, leaderName))
         end
     end
 end
@@ -651,6 +788,24 @@ function Grouper:CleanupOldGroups()
     for name, player in pairs(self.players) do
         if currentTime - player.lastSeen > expireTime then
             self.players[name] = nil
+        end
+    end
+end
+
+function Grouper:CleanupOldMultiPartMessages()
+    if not self.multiPartMessages then
+        return
+    end
+    
+    local currentTime = time()
+    local expireTime = 300 -- 5 minutes
+    
+    for messageId, messageData in pairs(self.multiPartMessages) do
+        if currentTime - messageData.timestamp > expireTime then
+            if self.db.profile.debug.enabled then
+                self:Print(string.format("DEBUG: Cleaning up expired multi-part message %s", messageId))
+            end
+            self.multiPartMessages[messageId] = nil
         end
     end
 end
