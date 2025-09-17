@@ -465,21 +465,25 @@ function Grouper:OnChannelMessage(event, message, sender, language, channelStrin
         version = data.version or "unknown"
     }
     
-    -- Handle different message types
-    if data.type == "GROUP_UPDATE" then
+    -- Handle different message types based on the protocol messageType, not data.type
+    if messageType == "GROUP_UPDATE" then
         if self.db.profile.debug.enabled then
             self:Print(string.format("DEBUG: Processing GROUP_UPDATE from %s", sender))
         end
         self:HandleGroupUpdate(data.data, sender)
-    elseif data.type == "GROUP_REMOVE" then
+    elseif messageType == "GROUP_REMOVE" then
         self:HandleGroupRemove(data.data, sender)
-    elseif data.type == "REQUEST_DATA" then
+    elseif messageType == "REQUEST_DATA" then
         self:HandleDataRequest(sender)
-    elseif data.type == "PRESENCE" then
+    elseif messageType == "PRESENCE" then
         self:HandlePresence(data.data, sender)
-    elseif data.type == "TEST" then
+    elseif messageType == "TEST" then
         if self.db.profile.debug.enabled then
-            self:Print(string.format("DEBUG: Received test message: %s", data.data.message or "no message"))
+            self:Print(string.format("DEBUG: Received test message: %s", data.data and data.data.message or "no message"))
+        end
+    else
+        if self.db.profile.debug.enabled then
+            self:Print(string.format("DEBUG: Unknown message type: %s", messageType))
         end
     end
     
@@ -553,13 +557,39 @@ function Grouper:RemoveGroup(groupId)
 end
 
 function Grouper:HandleGroupUpdate(groupData, sender)
+    if self.db.profile.debug.enabled then
+        self:Print(string.format("DEBUG: HandleGroupUpdate called - sender: %s, leader: %s", sender, groupData.leader or "nil"))
+        self:Print(string.format("DEBUG: Group ID: %s, Title: %s", groupData.id or "nil", groupData.title or "nil"))
+    end
+    
     if groupData.leader == sender then
         self.groups[groupData.id] = groupData
+        
+        if self.db.profile.debug.enabled then
+            self:Print(string.format("DEBUG: Added group to list. Total groups: %d", self:CountGroups()))
+        end
         
         if self.db.profile.notifications.newGroups then
             self:Print(string.format("New group available: %s", groupData.title))
         end
+        
+        -- Refresh UI if it's open
+        if self.mainFrame and self.mainFrame:IsShown() then
+            self:RefreshGroupList()
+        end
+    else
+        if self.db.profile.debug.enabled then
+            self:Print(string.format("DEBUG: Rejecting group update - sender mismatch"))
+        end
     end
+end
+
+function Grouper:CountGroups()
+    local count = 0
+    for _ in pairs(self.groups) do
+        count = count + 1
+    end
+    return count
 end
 
 function Grouper:HandleGroupRemove(data, sender)
@@ -676,7 +706,7 @@ function Grouper:SlashCommand(input)
     elseif command == "status" then
         local channelIndex = GetChannelName(ADDON_CHANNEL)
         local actuallyInChannel = channelIndex > 0
-        self:Print(string.format("Groups: %d, Players: %d", #self.groups, #self.players))
+        self:Print(string.format("Groups: %d, Players: %d", self:CountGroups(), #self.players))
         self:Print(string.format("Channel Status: %s (Index: %d)", 
             actuallyInChannel and "Connected" or "Disconnected", channelIndex))
         self:Print(string.format("Internal Status: %s", 
