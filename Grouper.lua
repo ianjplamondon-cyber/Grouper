@@ -7,9 +7,53 @@ local LibDBIcon = LibStub("LibDBIcon-1.0")
 
 -- Constants
 local ADDON_NAME = "Grouper"
-local COMM_PREFIX = "CGF"
-local ADDON_CHANNEL = "CGF"
+local COMM_PREFIX = "Grouper"
+local ADDON_CHANNEL = "Grouper"
 local ADDON_VERSION = "1.0.0"
+
+-- Dungeon data for Classic Era
+local DUNGEONS = {
+    -- Low level dungeons (10-25)
+    {name = "Ragefire Chasm", minLevel = 13, maxLevel = 18, type = "dungeon", faction = "Horde"},
+    {name = "The Deadmines", minLevel = 17, maxLevel = 26, type = "dungeon", faction = "Alliance"},
+    {name = "Wailing Caverns", minLevel = 17, maxLevel = 24, type = "dungeon", faction = "Both"},
+    {name = "Shadowfang Keep", minLevel = 22, maxLevel = 30, type = "dungeon", faction = "Both"},
+    {name = "The Stockade", minLevel = 24, maxLevel = 32, type = "dungeon", faction = "Alliance"},
+    {name = "Blackfathom Deeps", minLevel = 24, maxLevel = 32, type = "dungeon", faction = "Both"},
+    
+    -- Mid level dungeons (25-45)
+    {name = "Gnomeregan", minLevel = 29, maxLevel = 38, type = "dungeon", faction = "Both"},
+    {name = "Razorfen Kraul", minLevel = 29, maxLevel = 38, type = "dungeon", faction = "Both"},
+    {name = "Scarlet Monastery - Graveyard", minLevel = 32, maxLevel = 42, type = "dungeon", faction = "Both"},
+    {name = "Scarlet Monastery - Library", minLevel = 32, maxLevel = 42, type = "dungeon", faction = "Both"},
+    {name = "Scarlet Monastery - Armory", minLevel = 32, maxLevel = 42, type = "dungeon", faction = "Both"},
+    {name = "Scarlet Monastery - Cathedral", minLevel = 35, maxLevel = 45, type = "dungeon", faction = "Both"},
+    {name = "Razorfen Downs", minLevel = 37, maxLevel = 46, type = "dungeon", faction = "Both"},
+    {name = "Uldaman", minLevel = 42, maxLevel = 52, type = "dungeon", faction = "Both"},
+    
+    -- High level dungeons (45-60)
+    {name = "Zul'Farrak", minLevel = 44, maxLevel = 54, type = "dungeon", faction = "Both"},
+    {name = "Maraudon", minLevel = 46, maxLevel = 55, type = "dungeon", faction = "Both"},
+    {name = "Temple of Atal'Hakkar", minLevel = 50, maxLevel = 60, type = "dungeon", faction = "Both"},
+    {name = "Blackrock Depths", minLevel = 52, maxLevel = 60, type = "dungeon", faction = "Both"},
+    {name = "Lower Blackrock Spire", minLevel = 55, maxLevel = 60, type = "dungeon", faction = "Both"},
+    {name = "Upper Blackrock Spire", minLevel = 55, maxLevel = 60, type = "dungeon", faction = "Both"},
+    {name = "Dire Maul - East", minLevel = 55, maxLevel = 60, type = "dungeon", faction = "Both"},
+    {name = "Dire Maul - West", minLevel = 55, maxLevel = 60, type = "dungeon", faction = "Both"},
+    {name = "Dire Maul - North", minLevel = 55, maxLevel = 60, type = "dungeon", faction = "Both"},
+    {name = "Stratholme - Live", minLevel = 58, maxLevel = 60, type = "dungeon", faction = "Both"},
+    {name = "Stratholme - Undead", minLevel = 58, maxLevel = 60, type = "dungeon", faction = "Both"},
+    {name = "Scholomance", minLevel = 58, maxLevel = 60, type = "dungeon", faction = "Both"},
+    
+    -- Raids
+    {name = "Onyxia's Lair", minLevel = 60, maxLevel = 60, type = "raid", faction = "Both"},
+    {name = "Molten Core", minLevel = 60, maxLevel = 60, type = "raid", faction = "Both"},
+    {name = "Blackwing Lair", minLevel = 60, maxLevel = 60, type = "raid", faction = "Both"},
+    {name = "Zul'Gurub", minLevel = 60, maxLevel = 60, type = "raid", faction = "Both"},
+    {name = "Ahn'Qiraj (AQ20)", minLevel = 60, maxLevel = 60, type = "raid", faction = "Both"},
+    {name = "Temple of Ahn'Qiraj (AQ40)", minLevel = 60, maxLevel = 60, type = "raid", faction = "Both"},
+    {name = "Naxxramas", minLevel = 60, maxLevel = 60, type = "raid", faction = "Both"},
+}
 
 -- Data structures
 Grouper.groups = {}
@@ -43,7 +87,7 @@ local defaults = {
 -- Data broker for minimap
 local dataObj = {
     type = "data source",
-    text = "CGF",
+    text = "Grouper",
     icon = "Interface\\AddOns\\Grouper\\Textures\\GrouperIcon.png",
     OnClick = function(self, button)
         if button == "LeftButton" then
@@ -78,7 +122,7 @@ function Grouper:OnInitialize()
     -- Create options table
     self:SetupOptions()
     
-    self:Print("Loaded! Type /cgf or /grouper to open the group finder.")
+    self:Print("Loaded! Type /grouper to open the group finder.")
 end
 
 function Grouper:OnEnable()
@@ -89,8 +133,8 @@ function Grouper:OnEnable()
     self:RegisterEvent("CHAT_MSG_CHANNEL_JOIN", "OnChannelJoin")
     self:RegisterEvent("CHAT_MSG_CHANNEL_LEAVE", "OnChannelLeave")
     
-    -- Try to join the CGF channel
-    self:ScheduleTimer("JoinCGFChannel", 2)
+    -- Try to join the Grouper channel
+    self:ScheduleTimer("JoinGrouperChannel", 2)
     
     -- Start periodic tasks
     self:ScheduleRepeatingTimer("CleanupOldGroups", 60) -- Clean up every minute
@@ -98,20 +142,46 @@ function Grouper:OnEnable()
 end
 
 function Grouper:OnPlayerEnteringWorld()
-    -- Join CGF channel when entering world
-    self:ScheduleTimer("JoinCGFChannel", 5)
+    -- Join Grouper channel when entering world
+    self:ScheduleTimer("JoinGrouperChannel", 5)
 end
 
-function Grouper:JoinCGFChannel()
+function Grouper:JoinGrouperChannel()
     if not self.channelJoined then
         local channelIndex = GetChannelName(ADDON_CHANNEL)
         if channelIndex == 0 then
             -- Channel doesn't exist, try to join/create it
-            JoinChannelByName(ADDON_CHANNEL)
-            self:Print("Joining CGF channel for group communication...")
+            local success = JoinChannelByName(ADDON_CHANNEL)
+            if success then
+                self:Print("Joining Grouper channel for group communication...")
+                -- Check again in a moment to see if we joined
+                self:ScheduleTimer("CheckChannelStatus", 2)
+            else
+                self:Print("Failed to join Grouper channel. Retrying in 10 seconds...")
+                self:ScheduleTimer("JoinGrouperChannel", 10)
+            end
         else
+            -- Channel exists, mark as joined
             self.channelJoined = true
-            self:Print("Connected to CGF channel. You can now see groups from other addon users!")
+            self:Print("Connected to Grouper channel. You can now see groups from other addon users!")
+            -- Request current group data from other users
+            self:SendComm("REQUEST_DATA", {type = "request", timestamp = time()})
+        end
+    end
+end
+
+function Grouper:CheckChannelStatus()
+    if not self.channelJoined then
+        local channelIndex = GetChannelName(ADDON_CHANNEL)
+        if channelIndex > 0 then
+            self.channelJoined = true
+            self:Print("Successfully connected to Grouper channel!")
+            -- Request current group data from other users
+            self:SendComm("REQUEST_DATA", {type = "request", timestamp = time()})
+        else
+            -- Still not connected, try again
+            self:Print("Still connecting to Grouper channel...")
+            self:ScheduleTimer("JoinGrouperChannel", 5)
         end
     end
 end
@@ -119,7 +189,7 @@ end
 function Grouper:OnChannelJoin(event, text, playerName, languageName, channelName, playerName2, specialFlags, zoneChannelID, channelIndex, channelBaseName, unused, lineID, guid, bnSenderID, isMobile, isSubtitle, hideSenderInLetterbox, supressRaidIcons)
     if channelBaseName == ADDON_CHANNEL and playerName == UnitName("player") then
         self.channelJoined = true
-        self:Print("Successfully joined CGF channel!")
+        self:Print("Successfully joined Grouper channel!")
         -- Request current group data from other users
         self:SendComm("REQUEST_DATA", {type = "request", timestamp = time()})
     end
@@ -128,8 +198,8 @@ end
 function Grouper:OnChannelLeave(event, text, playerName, languageName, channelName, playerName2, specialFlags, zoneChannelID, channelIndex, channelBaseName)
     if channelBaseName == ADDON_CHANNEL and playerName == UnitName("player") then
         self.channelJoined = false
-        self:Print("Disconnected from CGF channel. Reconnecting...")
-        self:ScheduleTimer("JoinCGFChannel", 5)
+        self:Print("Disconnected from Grouper channel. Reconnecting...")
+        self:ScheduleTimer("JoinGrouperChannel", 5)
     end
 end
 
@@ -208,6 +278,7 @@ function Grouper:CreateGroup(groupData)
         currentSize = groupData.currentSize or 1,
         maxSize = groupData.maxSize or 5,
         location = groupData.location or "",
+        dungeons = groupData.dungeons or {},
         timestamp = time(),
         members = {
             [UnitName("player")] = {
@@ -347,6 +418,13 @@ function Grouper:GetFilteredGroups()
             include = false
         end
         
+        -- Dungeon filter
+        if self.selectedDungeonFilter and self.selectedDungeonFilter ~= "" then
+            if not group.dungeons or not group.dungeons[self.selectedDungeonFilter] then
+                include = false
+            end
+        end
+        
         if include then
             table.insert(filtered, group)
         end
@@ -370,10 +448,26 @@ function Grouper:SlashCommand(input)
     elseif command == "config" or command == "options" then
         self:ShowConfig()
     elseif command == "join" then
-        self:JoinCGFChannel()
+        self.channelJoined = false -- Force a rejoin attempt
+        self:JoinGrouperChannel()
     elseif command == "status" then
-        self:Print(string.format("Groups: %d, Players: %d, Channel: %s", 
-            #self.groups, #self.players, self.channelJoined and "Connected" or "Disconnected"))
+        local channelIndex = GetChannelName(ADDON_CHANNEL)
+        local actuallyInChannel = channelIndex > 0
+        self:Print(string.format("Groups: %d, Players: %d", #self.groups, #self.players))
+        self:Print(string.format("Channel Status: %s (Index: %d)", 
+            actuallyInChannel and "Connected" or "Disconnected", channelIndex))
+        self:Print(string.format("Internal Status: %s", 
+            self.channelJoined and "Connected" or "Disconnected"))
+        
+        -- Auto-fix if there's a mismatch
+        if actuallyInChannel and not self.channelJoined then
+            self:Print("Fixing channel status...")
+            self.channelJoined = true
+        elseif not actuallyInChannel and self.channelJoined then
+            self:Print("Reconnecting to channel...")
+            self.channelJoined = false
+            self:JoinGrouperChannel()
+        end
     else
         self:Print("Usage: /grouper [show|config|join|status]")
     end
@@ -402,7 +496,13 @@ function Grouper:CreateMainWindow()
     
     self.mainFrame = AceGUI:Create("Frame")
     self.mainFrame:SetTitle("Grouper")
-    self.mainFrame:SetStatusText(self.channelJoined and "Connected to CGF channel" or "Not connected to CGF channel")
+    -- Check actual channel status
+    local channelIndex = GetChannelName(ADDON_CHANNEL)
+    local actuallyInChannel = channelIndex > 0
+    if actuallyInChannel and not self.channelJoined then
+        self.channelJoined = true -- Fix status if needed
+    end
+    self.mainFrame:SetStatusText(actuallyInChannel and "Connected to Grouper channel" or "Not connected to Grouper channel")
     self.mainFrame:SetLayout("Fill")
     self.mainFrame:SetWidth(700)
     self.mainFrame:SetHeight(600)
@@ -504,6 +604,24 @@ function Grouper:CreateBrowseTab(container)
         typeGroup:AddChild(checkbox)
     end
     
+    -- Dungeon filter dropdown
+    local dungeonFilter = AceGUI:Create("Dropdown")
+    dungeonFilter:SetLabel("Filter by Dungeon")
+    dungeonFilter:SetWidth(200)
+    
+    -- Build dungeon list for dropdown
+    local dungeonList = {[""] = "All Dungeons"}
+    for _, dungeon in ipairs(DUNGEONS) do
+        dungeonList[dungeon.name] = dungeon.name
+    end
+    dungeonFilter:SetList(dungeonList)
+    dungeonFilter:SetValue("")
+    dungeonFilter:SetCallback("OnValueChanged", function(widget, event, value)
+        self.selectedDungeonFilter = value
+        self:RefreshGroupList()
+    end)
+    filterGroup:AddChild(dungeonFilter)
+    
     -- Refresh button
     local refreshButton = AceGUI:Create("Button")
     refreshButton:SetText("Refresh")
@@ -558,6 +676,49 @@ function Grouper:CreateCreateTab(container)
     typeDropdown:SetValue("dungeon")
     typeDropdown:SetFullWidth(true)
     scrollFrame:AddChild(typeDropdown)
+    
+    -- Dungeon selection (multi-select)
+    local dungeonGroup = AceGUI:Create("InlineGroup")
+    dungeonGroup:SetTitle("Select Dungeons/Raids")
+    dungeonGroup:SetFullWidth(true)
+    dungeonGroup:SetLayout("Flow")
+    scrollFrame:AddChild(dungeonGroup)
+    
+    local selectedDungeons = {}
+    local dungeonCheckboxes = {}
+    
+    -- Function to filter dungeons based on selected type
+    local function updateDungeonList()
+        local selectedType = typeDropdown:GetValue()
+        dungeonGroup:ReleaseChildren()
+        selectedDungeons = {}
+        dungeonCheckboxes = {}
+        
+        for i, dungeon in ipairs(DUNGEONS) do
+            if selectedType == "other" or dungeon.type == selectedType then
+                local checkbox = AceGUI:Create("CheckBox")
+                checkbox:SetLabel(string.format("%s (%d-%d)", dungeon.name, dungeon.minLevel, dungeon.maxLevel))
+                checkbox:SetWidth(300)
+                checkbox:SetCallback("OnValueChanged", function(widget, event, value)
+                    if value then
+                        selectedDungeons[dungeon.name] = dungeon
+                    else
+                        selectedDungeons[dungeon.name] = nil
+                    end
+                end)
+                dungeonGroup:AddChild(checkbox)
+                dungeonCheckboxes[dungeon.name] = checkbox
+            end
+        end
+    end
+    
+    -- Update dungeon list when type changes
+    typeDropdown:SetCallback("OnValueChanged", function()
+        updateDungeonList()
+    end)
+    
+    -- Initialize dungeon list
+    updateDungeonList()
     
     -- Level range
     local levelGroup = AceGUI:Create("SimpleGroup")
@@ -629,7 +790,8 @@ function Grouper:CreateCreateTab(container)
             currentSize = tonumber(currentSizeEdit:GetText()) or 1,
             maxSize = tonumber(maxSizeEdit:GetText()) or 5,
             location = locationEdit:GetText(),
-            myRole = roleDropdown:GetValue()
+            myRole = roleDropdown:GetValue(),
+            dungeons = selectedDungeons
         }
         
         if groupData.title == "" then
@@ -747,12 +909,22 @@ function Grouper:CreateGroupFrame(group)
     frame:SetLayout("Flow")
     
     -- Group details
+    local dungeonsList = ""
+    if group.dungeons and next(group.dungeons) then
+        local dungeonNames = {}
+        for dungeonName, _ in pairs(group.dungeons) do
+            table.insert(dungeonNames, dungeonName)
+        end
+        dungeonsList = "\n|cffFFD700Dungeons:|r " .. table.concat(dungeonNames, ", ")
+    end
+    
     local detailsLabel = AceGUI:Create("Label")
-    detailsLabel:SetText(string.format("|cffFFD700Leader:|r %s  |cffFFD700Type:|r %s  |cffFFD700Level:|r %d-%d\n|cffFFD700Location:|r %s\n|cffFFD700Description:|r %s",
+    detailsLabel:SetText(string.format("|cffFFD700Leader:|r %s  |cffFFD700Type:|r %s  |cffFFD700Level:|r %d-%d\n|cffFFD700Location:|r %s%s\n|cffFFD700Description:|r %s",
         group.leader,
         group.type,
         group.minLevel, group.maxLevel,
         group.location ~= "" and group.location or "Not specified",
+        dungeonsList,
         group.description ~= "" and group.description or "No description"))
     detailsLabel:SetFullWidth(true)
     frame:AddChild(detailsLabel)
