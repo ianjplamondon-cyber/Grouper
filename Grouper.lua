@@ -3234,28 +3234,64 @@ function Grouper:CreateBrowseTab(container)
     -- Refresh button
     local refreshButton = AceGUI:Create("Button")
     refreshButton:SetText("Refresh")
-    refreshButton:SetWidth(80) -- Reduced from 100
+    refreshButton:SetWidth(80)
     refreshButton:SetCallback("OnClick", function()
-        -- Request fresh data from other players
         if self.db.profile.debug.enabled then
             self:Print("DEBUG: Refresh button clicked - requesting fresh data from other players")
         end
         self:SendComm("REQUEST_DATA", {type = "request", timestamp = time()})
-        
-        -- Schedule a delayed refresh in case no responses come back
+
+        -- Track pending responses for each group
+        if not self.pendingGroupResponses then self.pendingGroupResponses = {} end
+        local now = time()
+        for groupId, group in pairs(self.groups or {}) do
+            local leader = group.leader
+            self.pendingGroupResponses[leader] = now
+            -- Schedule removal if no response
+            self:ScheduleTimer(function()
+                if self.pendingGroupResponses[leader] == now then
+                    if self.db.profile.debug.enabled then
+                        self:Print("DEBUG: No response from " .. leader .. " after 10s, removing group.")
+                    end
+                    self:RemoveGroupByLeader(leader)
+                    self.pendingGroupResponses[leader] = nil
+                end
+            end, 10)
+        end
+        -- Also schedule a delayed refresh
         self:ScheduleTimer(function()
             if self.db.profile.debug.enabled then
                 self:Print("DEBUG: Delayed refresh after REQUEST_DATA timeout")
             end
             self:RefreshGroupList()
-        end, 15) -- Wait 15 seconds for responses
+        end, 15)
     end)
     filterGroup:AddChild(refreshButton)
+-- Remove group by leader name
+function Grouper:RemoveGroupByLeader(leader)
+    if not self.groups then return end
+    local toRemove = {}
+    for groupId, group in pairs(self.groups) do
+        if group.leader == leader then
+            table.insert(toRemove, groupId)
+        end
+    end
+    for _, groupId in ipairs(toRemove) do
+        self.groups[groupId] = nil
+    end
+    self:RefreshGroupList()
+end
+-- When a response is received from a party leader, clear pending removal
+function Grouper:OnGroupLeaderResponse(leader)
+    if self.pendingGroupResponses then
+        self.pendingGroupResponses[leader] = nil
+    end
+end
     
     -- Groups list
     local groupsScrollFrame = AceGUI:Create("ScrollFrame")
     groupsScrollFrame:SetFullWidth(true)
-    groupsScrollFrame:SetHeight(400) -- Set explicit height to use more space
+    groupsScrollFrame:SetFullHeight(true)
     groupsScrollFrame:SetLayout("List")
     container:AddChild(groupsScrollFrame)
     
