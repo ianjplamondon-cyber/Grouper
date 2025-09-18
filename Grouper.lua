@@ -53,6 +53,26 @@ local DUNGEONS = {
     {name = "Ahn'Qiraj (AQ20)", minLevel = 60, maxLevel = 60, type = "raid", faction = "Both"},
     {name = "Temple of Ahn'Qiraj (AQ40)", minLevel = 60, maxLevel = 60, type = "raid", faction = "Both"},
     {name = "Naxxramas", minLevel = 60, maxLevel = 60, type = "raid", faction = "Both"},
+    
+    -- Battlegrounds
+    {name = "Warsong Gulch", minLevel = 10, maxLevel = 60, type = "pvp", faction = "Both", brackets = {
+        {name = "10-19", minLevel = 10, maxLevel = 19},
+        {name = "20-29", minLevel = 20, maxLevel = 29},
+        {name = "30-39", minLevel = 30, maxLevel = 39},
+        {name = "40-49", minLevel = 40, maxLevel = 49},
+        {name = "50-59", minLevel = 50, maxLevel = 59},
+        {name = "60", minLevel = 60, maxLevel = 60}
+    }},
+    {name = "Arathi Basin", minLevel = 20, maxLevel = 60, type = "pvp", faction = "Both", brackets = {
+        {name = "20-29", minLevel = 20, maxLevel = 29},
+        {name = "30-39", minLevel = 30, maxLevel = 39},
+        {name = "40-49", minLevel = 40, maxLevel = 49},
+        {name = "50-59", minLevel = 50, maxLevel = 59},
+        {name = "60", minLevel = 60, maxLevel = 60}
+    }},
+    {name = "Alterac Valley", minLevel = 51, maxLevel = 60, type = "pvp", faction = "Both", brackets = {
+        {name = "51-60", minLevel = 51, maxLevel = 60}
+    }},
 }
 
 -- Classic Era API Compatibility Functions
@@ -119,6 +139,7 @@ local defaults = {
                 dungeon = true,
                 raid = true,
                 quest = true,
+                pvp = true,
                 other = true,
             },
         },
@@ -2901,6 +2922,7 @@ function Grouper:CreateBrowseTab(container)
         {key = "dungeon", label = "Dungeon"},
         {key = "raid", label = "Raid"},
         {key = "quest", label = "Quest"},
+        {key = "pvp", label = "PvP"},
         {key = "other", label = "Other"}
     }
     
@@ -3015,7 +3037,7 @@ function Grouper:CreateCreateTab(container)
     
     -- Dungeon selection (multi-select) - filtered by type dropdown
     local dungeonGroup = AceGUI:Create("InlineGroup")
-    dungeonGroup:SetTitle("Select Dungeons/Raids")
+    dungeonGroup:SetTitle("Select Dungeons/Raids/Battlegrounds")
     dungeonGroup:SetFullWidth(true)
     dungeonGroup:SetLayout("Flow")
     scrollFrame:AddChild(dungeonGroup)
@@ -3030,41 +3052,113 @@ function Grouper:CreateCreateTab(container)
         selectedDungeons = {}
         dungeonCheckboxes = {}
         
-        -- Only show dungeon list if dungeon or raid is selected
-        if selectedType ~= "dungeon" and selectedType ~= "raid" then
+        -- Only show dungeon/battleground list if dungeon, raid, or pvp is selected
+        if selectedType ~= "dungeon" and selectedType ~= "raid" and selectedType ~= "pvp" then
             return
         end
         
         for i, dungeon in ipairs(DUNGEONS) do
-            -- Show dungeons/raids that match the selected type, or show all if "other"
+            -- Show dungeons/raids/battlegrounds that match the selected type
             if selectedType == "other" or dungeon.type == selectedType then
                 local checkbox = AceGUI:Create("CheckBox")
-            checkbox:SetLabel(string.format("%s (%d-%d)", dungeon.name, dungeon.minLevel, dungeon.maxLevel))
-            checkbox:SetWidth(300)
-            checkbox:SetCallback("OnValueChanged", function(widget, event, value)
-                if value then
-                    selectedDungeons[dungeon.name] = dungeon
-                    -- Auto-update level range to this dungeon's range
-                    minLevelEdit:SetText(tostring(dungeon.minLevel))
-                    maxLevelEdit:SetText(tostring(dungeon.maxLevel))
-                else
-                    selectedDungeons[dungeon.name] = nil
-                    -- If no dungeons selected, reset to default dungeon range
-                    local anySelected = false
-                    for name, selected in pairs(selectedDungeons) do
-                        if selected then
-                            anySelected = true
-                            break
+                checkbox:SetLabel(string.format("%s (%d-%d)", dungeon.name, dungeon.minLevel, dungeon.maxLevel))
+                checkbox:SetWidth(300)
+                
+                -- Store bracket group for this battleground
+                local bracketGroup = nil
+                local bracketCheckboxes = {}
+                
+                checkbox:SetCallback("OnValueChanged", function(widget, event, value)
+                    if value then
+                        selectedDungeons[dungeon.name] = dungeon
+                        
+                        -- If this is a battleground with brackets, show bracket selection
+                        if dungeon.type == "pvp" and dungeon.brackets then
+                            -- Create bracket selection group
+                            bracketGroup = AceGUI:Create("InlineGroup")
+                            bracketGroup:SetTitle(dungeon.name .. " Level Brackets")
+                            bracketGroup:SetFullWidth(true)
+                            bracketGroup:SetLayout("Flow")
+                            dungeonGroup:AddChild(bracketGroup)
+                            
+                            -- Add bracket checkboxes
+                            for _, bracket in ipairs(dungeon.brackets) do
+                                local bracketCheckbox = AceGUI:Create("CheckBox")
+                                bracketCheckbox:SetLabel(bracket.name)
+                                bracketCheckbox:SetWidth(80)
+                                bracketCheckbox:SetCallback("OnValueChanged", function(bracketWidget, bracketEvent, bracketValue)
+                                    if bracketValue then
+                                        -- Update level range to this bracket's range
+                                        minLevelEdit:SetText(tostring(bracket.minLevel))
+                                        maxLevelEdit:SetText(tostring(bracket.maxLevel))
+                                        
+                                        -- Uncheck other brackets for this battleground
+                                        for otherBracket, otherCheckbox in pairs(bracketCheckboxes) do
+                                            if otherCheckbox ~= bracketWidget then
+                                                otherCheckbox:SetValue(false)
+                                            end
+                                        end
+                                        
+                                        -- Store selected bracket info
+                                        selectedDungeons[dungeon.name] = {
+                                            name = dungeon.name,
+                                            type = dungeon.type,
+                                            bracket = bracket,
+                                            minLevel = bracket.minLevel,
+                                            maxLevel = bracket.maxLevel
+                                        }
+                                    else
+                                        -- If unchecking, revert to general battleground selection
+                                        selectedDungeons[dungeon.name] = dungeon
+                                        minLevelEdit:SetText(tostring(dungeon.minLevel))
+                                        maxLevelEdit:SetText(tostring(dungeon.maxLevel))
+                                    end
+                                end)
+                                bracketGroup:AddChild(bracketCheckbox)
+                                bracketCheckboxes[bracket.name] = bracketCheckbox
+                            end
+                        else
+                            -- For non-battlegrounds, just update level range normally
+                            minLevelEdit:SetText(tostring(dungeon.minLevel))
+                            maxLevelEdit:SetText(tostring(dungeon.maxLevel))
+                        end
+                    else
+                        selectedDungeons[dungeon.name] = nil
+                        
+                        -- Remove bracket selection if it exists
+                        if bracketGroup then
+                            dungeonGroup:ReleaseChildren()
+                            bracketGroup = nil
+                            bracketCheckboxes = {}
+                            -- Rebuild the main checkbox list
+                            updateDungeonList()
+                            return
+                        end
+                        
+                        -- Reset level range if no dungeons selected
+                        local anySelected = false
+                        for name, selected in pairs(selectedDungeons) do
+                            if selected then
+                                anySelected = true
+                                break
+                            end
+                        end
+                        if not anySelected then
+                            if selectedType == "dungeon" then
+                                minLevelEdit:SetText("15")
+                                maxLevelEdit:SetText("25")
+                            elseif selectedType == "raid" then
+                                minLevelEdit:SetText("60")
+                                maxLevelEdit:SetText("60")
+                            elseif selectedType == "pvp" then
+                                minLevelEdit:SetText("10")
+                                maxLevelEdit:SetText("60")
+                            end
                         end
                     end
-                    if not anySelected then
-                        minLevelEdit:SetText("15")
-                        maxLevelEdit:SetText("25")
-                    end
-                end
-            end)
-            dungeonGroup:AddChild(checkbox)
-            dungeonCheckboxes[dungeon.name] = checkbox
+                end)
+                dungeonGroup:AddChild(checkbox)
+                dungeonCheckboxes[dungeon.name] = checkbox
             end
         end
     end
@@ -3077,6 +3171,9 @@ function Grouper:CreateCreateTab(container)
             maxLevelEdit:SetText("25")
         elseif value == "raid" then
             minLevelEdit:SetText("60")
+            maxLevelEdit:SetText("60")
+        elseif value == "pvp" then
+            minLevelEdit:SetText("10")
             maxLevelEdit:SetText("60")
         else
             minLevelEdit:SetText("1")
