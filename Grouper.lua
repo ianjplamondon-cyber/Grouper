@@ -125,6 +125,14 @@ local defaults = {
         debug = {
             enabled = false,
         },
+        ui = {
+            position = {
+                point = "CENTER",
+                relativePoint = "CENTER",
+                xOfs = 0,
+                yOfs = 0,
+            },
+        },
     },
 }
 
@@ -2509,8 +2517,26 @@ function Grouper:SlashCommand(input)
         if playerCount == 0 then
             self:Print("  No players currently known")
         end
+    elseif command == "position" then
+        local pos = self.db.profile.ui.position
+        self:Print(string.format("Saved window position: %s %s %.0f %.0f", 
+            pos.point or "nil", pos.relativePoint or "nil", pos.xOfs or 0, pos.yOfs or 0))
+        if self.mainFrame and self.mainFrame.frame then
+            local point, relativeTo, relativePoint, xOfs, yOfs = self.mainFrame.frame:GetPoint()
+            self:Print(string.format("Current window position: %s %s %.0f %.0f", 
+                point or "nil", relativePoint or "nil", xOfs or 0, yOfs or 0))
+        else
+            self:Print("Window is not currently open")
+        end
+    elseif command == "savepos" then
+        if self.mainFrame and self.mainFrame.frame then
+            self:SaveWindowPosition()
+            self:Print("Window position saved manually")
+        else
+            self:Print("Window must be open to save position")
+        end
     else
-        self:Print("Usage: /grouper [show|config|join|status|test|debug|presence|chunks|request|list|players]")
+        self:Print("Usage: /grouper [show|config|join|status|test|debug|presence|chunks|request|list|players|position|savepos]")
     end
 end
 
@@ -2519,6 +2545,87 @@ function Grouper:ShowConfig()
 end
 
 -- Main window management
+function Grouper:SaveWindowPosition()
+    if self.mainFrame and self.mainFrame.frame then
+        local point, relativeTo, relativePoint, xOfs, yOfs = self.mainFrame.frame:GetPoint()
+        if point and relativePoint then
+            self.db.profile.ui.position.point = point
+            self.db.profile.ui.position.relativePoint = relativePoint
+            self.db.profile.ui.position.xOfs = xOfs or 0
+            self.db.profile.ui.position.yOfs = yOfs or 0
+            
+            -- Force database save to ensure position is written to SavedVariables
+            if self.db.Flush then
+                self.db:Flush()
+            end
+            
+            if self.db.profile.debug.enabled then
+                self:Print(string.format("DEBUG: Saved window position: %s %s %.0f %.0f", point, relativePoint, xOfs or 0, yOfs or 0))
+            end
+        end
+    end
+end
+
+function Grouper:RestoreWindowPosition()
+    if self.mainFrame and self.mainFrame.frame then
+        local pos = self.db.profile.ui.position
+        if pos.point and pos.relativePoint and pos.xOfs ~= nil and pos.yOfs ~= nil then
+            self.mainFrame.frame:ClearAllPoints()
+            self.mainFrame.frame:SetPoint(pos.point, UIParent, pos.relativePoint, pos.xOfs, pos.yOfs)
+            
+            if self.db.profile.debug.enabled then
+                self:Print(string.format("DEBUG: Restored window position: %s %s %.0f %.0f", pos.point, pos.relativePoint, pos.xOfs, pos.yOfs))
+                
+                -- Verify the position was actually set
+                local actualPoint, actualRelativeTo, actualRelativePoint, actualXOfs, actualYOfs = self.mainFrame.frame:GetPoint()
+                self:Print(string.format("DEBUG: Verified position after restore: %s %s %.0f %.0f", 
+                    actualPoint or "nil", actualRelativePoint or "nil", actualXOfs or 0, actualYOfs or 0))
+            end
+        else
+            if self.db.profile.debug.enabled then
+                self:Print(string.format("DEBUG: Cannot restore position - missing data: point=%s, relativePoint=%s, xOfs=%s, yOfs=%s", 
+                    tostring(pos.point), tostring(pos.relativePoint), tostring(pos.xOfs), tostring(pos.yOfs)))
+            end
+        end
+    end
+end
+
+function Grouper:SetupPositionSaving()
+    if self.mainFrame and self.mainFrame.frame then
+        -- Save position when frame is dragged
+        self.mainFrame.frame:SetScript("OnDragStop", function()
+            self:SaveWindowPosition()
+        end)
+        
+        -- Also save position when the frame is manually moved (backup method)
+        -- Use a simple timer-based position check
+        if not self.positionCheckTimer then
+            self.positionCheckTimer = self:ScheduleRepeatingTimer(function()
+                if self.mainFrame and self.mainFrame.frame then
+                    local currentPoint, _, currentRelativePoint, currentXOfs, currentYOfs = self.mainFrame.frame:GetPoint()
+                    local savedPos = self.db.profile.ui.position
+                    
+                    -- Check if position has changed significantly (more than 5 pixels)
+                    if currentPoint and savedPos.point and (
+                        currentPoint ~= savedPos.point or 
+                        currentRelativePoint ~= savedPos.relativePoint or
+                        math.abs((currentXOfs or 0) - (savedPos.xOfs or 0)) > 5 or
+                        math.abs((currentYOfs or 0) - (savedPos.yOfs or 0)) > 5
+                    ) then
+                        self:SaveWindowPosition()
+                    end
+                else
+                    -- Stop timer if frame doesn't exist
+                    if self.positionCheckTimer then
+                        self:CancelTimer(self.positionCheckTimer)
+                        self.positionCheckTimer = nil
+                    end
+                end
+            end, 1) -- Check every 1 second
+        end
+    end
+end
+
 function Grouper:ToggleMainWindow()
     if self.mainFrame and self.mainFrame:IsShown() then
         self.mainFrame:Hide()
@@ -2550,10 +2657,36 @@ function Grouper:CreateMainWindow()
     self.mainFrame:SetLayout("Fill")
     self.mainFrame:SetWidth(700)
     self.mainFrame:SetHeight(600)
+    
+    -- Restore position IMMEDIATELY after frame creation to avoid snapping
+    if self.db.profile.debug.enabled then
+        self:Print("DEBUG: About to restore window position...")
+    end
+    self:RestoreWindowPosition()
+    self:SetupPositionSaving()
+    
     self.mainFrame:SetCallback("OnClose", function(widget)
+        -- Save position before closing
+        self:SaveWindowPosition()
+        
+        -- Clean up position check timer
+        if self.positionCheckTimer then
+            self:CancelTimer(self.positionCheckTimer)
+            self.positionCheckTimer = nil
+        end
+        
         AceGUI:Release(widget)
         self.mainFrame = nil
     end)
+    
+    -- Create all the UI content first
+    self:CreateMainWindowContent()
+end
+
+function Grouper:CreateMainWindowContent()
+    if not self.mainFrame then
+        return
+    end
     
     -- Create main container
     local mainContainer = AceGUI:Create("SimpleGroup")
