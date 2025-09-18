@@ -193,6 +193,7 @@ function Grouper:OnEnable()
     
     -- Register for channel messages to receive our protocol messages (keeping for backward compatibility)
     self:RegisterEvent("CHAT_MSG_CHANNEL", "OnChannelMessage")
+    -- Note: WHISPER messages are now handled by AceComm automatically through OnCommReceived
     
     -- Register AceComm message handlers for new communication system (16 char limit)
     self:RegisterComm("GRPR_GROUP", "OnCommReceived")       -- Compact GROUP_UPDATE with ChatThrottleLib
@@ -447,14 +448,17 @@ end
 
 -- Communication functions using AceComm-3.0
 function Grouper:SendComm(messageType, data, distribution, target, priority)
-    -- For GROUP_UPDATE, use direct channel messaging since AceComm CHANNEL distribution isn't working
-    if messageType == "GROUP_UPDATE" then
+    -- For GROUP_UPDATE and REQUEST_DATA, use direct channel messaging for CHANNEL distribution
+    -- But allow WHISPER and other distributions to use proper AceComm
+    if messageType == "GROUP_UPDATE" and (distribution == "CHANNEL" or not distribution) then
         return self:SendGroupUpdateViaChannel(data)
+    elseif messageType == "REQUEST_DATA" and (distribution == "CHANNEL" or not distribution) then
+        return self:SendRequestDataViaChannel(data)
     end
     
-    -- All other communication uses AceComm for reliability
+    -- For WHISPER and other distributions, use standard AceComm which works fine
     if self.db.profile.debug.enabled then
-        self:Print(string.format("DEBUG: ⚡ SendComm called with messageType='%s'", messageType))
+        self:Print(string.format("DEBUG: ⚡ SendComm called with messageType='%s', distribution='%s'", messageType, distribution or "default"))
     end
     
     local message = {
@@ -634,6 +638,36 @@ function Grouper:SendGroupUpdateViaChannel(groupData)
     return true
 end
 
+function Grouper:SendRequestDataViaChannel(data)
+    -- Use direct channel messaging for REQUEST_DATA
+    local channelIndex = self:GetGrouperChannelIndex()
+    if channelIndex <= 0 then
+        if self.db.profile.debug.enabled then
+            self:Print("DEBUG: ✗ Cannot send REQUEST_DATA - not in Grouper channel")
+        end
+        return false
+    end
+    
+    -- Create simple REQUEST_DATA message
+    local message = string.format("GRPR_REQUEST_DATA:%s:%d", 
+        UnitName("player"),
+        time()
+    )
+    
+    if self.db.profile.debug.enabled then
+        self:Print(string.format("DEBUG: ⚡ Sending REQUEST_DATA via direct channel %d: %s", channelIndex, message))
+    end
+    
+    -- Send via direct channel message
+    SendChatMessage(message, "CHANNEL", nil, channelIndex)
+    
+    if self.db.profile.debug.enabled then
+        self:Print("DEBUG: ✓ REQUEST_DATA sent via direct channel")
+    end
+    
+    return true
+end
+
 function Grouper:HandleDirectGroupUpdate(message, sender)
     -- Parse: GRPR_GROUP_UPDATE:id:title:typeId:dungeonId:currentSize:maxSize:location:timestamp:leader:roleId
     local parts = {string.split(":", message)}
@@ -714,6 +748,56 @@ function Grouper:HandleDirectGroupUpdate(message, sender)
     
     -- Use the same processing as other group updates
     self:HandleGroupUpdate(groupData, sender)
+end
+
+function Grouper:HandleDirectRequestData(message, sender)
+    -- Parse: GRPR_REQUEST_DATA:requester:timestamp
+    local parts = {string.split(":", message)}
+    if #parts < 3 then
+        if self.db.profile.debug.enabled then
+            self:Print(string.format("DEBUG: Invalid REQUEST_DATA format from %s", sender))
+        end
+        return
+    end
+    
+    local requester = parts[2]
+    local timestamp = tonumber(parts[3]) or time()
+    
+    if self.db.profile.debug.enabled then
+        self:Print(string.format("DEBUG: Processing REQUEST_DATA from %s, sending our groups via WHISPER", requester))
+    end
+    
+    -- Delay the response slightly to avoid rapid message sending
+    self:ScheduleTimer(function()
+        -- Send all our groups to the requester via WHISPER using the same encoded format as direct channel
+        for groupId, group in pairs(self.groups) do
+            if group.leader == UnitName("player") then
+                if self.db.profile.debug.enabled then
+                    self:Print(string.format("DEBUG: Sending our group %s (%s) via WHISPER to %s using encoded format", groupId, group.title, requester))
+                end
+                
+                if self.db.profile.debug.enabled then
+                    self:Print(string.format("DEBUG: ⚡ Sending GROUP_UPDATE via addon whisper to %s using AceComm format", requester))
+                end
+                
+                -- Use AceComm format for addon whisper (system message, no chat tab)
+                -- This will be processed by OnCommReceived and use HandleGroupUpdate
+                local message = {
+                    type = "GROUP_UPDATE",
+                    sender = UnitName("player"),
+                    timestamp = time(),
+                    version = ADDON_VERSION,
+                    data = group
+                }
+                
+                local success = self:SendCommMessage("GRPR_GRP_UPD", self:Serialize(message), "WHISPER", requester, "NORMAL")
+                
+                if self.db.profile.debug.enabled then
+                    self:Print(string.format("DEBUG: AceComm addon whisper result: %s", success and "SUCCESS" or "FAILED"))
+                end
+            end
+        end
+    end, 0.5) -- 500ms delay
 end
 
 function Grouper:SendGroupUpdateDirectly(groupData)
@@ -878,6 +962,15 @@ function Grouper:OnChannelMessage(event, message, sender, language, channelStrin
             self:Print(string.format("DEBUG: ✓ RECEIVED DIRECT CHANNEL GROUP_UPDATE from %s", sender))
         end
         self:HandleDirectGroupUpdate(message, sender)
+        return
+    end
+    
+    -- Check for direct REQUEST_DATA messages
+    if message:match("^GRPR_REQUEST_DATA:") then
+        if self.db.profile.debug.enabled then
+            self:Print(string.format("DEBUG: ✓ RECEIVED DIRECT CHANNEL REQUEST_DATA from %s", sender))
+        end
+        self:HandleDirectRequestData(message, sender)
         return
     end
     
@@ -1393,12 +1486,79 @@ function Grouper:OnCommReceived(prefix, message, distribution, sender)
             self:Print(string.format("DEBUG: ✓ RECEIVED GRPR_GRP_UPD from %s, deserializing", sender))
         end
         -- Handle normal serialized format like TEST messages
-        local success, deserializedMessage = pcall(self.Deserialize, self, message)
-        if success and deserializedMessage then
-            self:ProcessReceivedMessage(deserializedMessage.type, deserializedMessage.data, sender)
+        local pcall_success, deserialize_success, deserializedMessage = pcall(self.Deserialize, self, message)
+        if pcall_success and deserialize_success and deserializedMessage then
+            if self.db.profile.debug.enabled then
+                self:Print(string.format("DEBUG: ✓ Successfully deserialized GRPR_GRP_UPD message"))
+                
+                -- Add safe error handling for debug logging
+                local success_debug, error_debug = pcall(function()
+                    -- Safely check deserializedMessage.type
+                    local msgType = "nil"
+                    if deserializedMessage.type then
+                        msgType = tostring(deserializedMessage.type)
+                    end
+                    self:Print(string.format("DEBUG: deserializedMessage.type = %s", msgType))
+                    
+                    -- Safely check deserializedMessage.data
+                    if deserializedMessage.data then
+                        self:Print(string.format("DEBUG: deserializedMessage.data exists, calling ProcessReceivedMessage"))
+                        if type(deserializedMessage.data) == "table" then
+                            local groupId = deserializedMessage.data.id or "nil"
+                            local groupTitle = deserializedMessage.data.title or "nil"
+                            local groupLeader = deserializedMessage.data.leader or "nil"
+                            self:Print(string.format("DEBUG: Group ID: %s, Title: %s, Leader: %s", groupId, groupTitle, groupLeader))
+                        end
+                    else
+                        self:Print("DEBUG: deserializedMessage.data is nil!")
+                    end
+                    
+                    self:Print(string.format("DEBUG: About to call ProcessReceivedMessage..."))
+                end)
+                
+                if not success_debug then
+                    self:Print(string.format("DEBUG: ✗ Error in debug logging: %s", tostring(error_debug)))
+                end
+            end
+            -- Pass the whole deserialized message, not just the data part
+            local success2, error2 = pcall(function()
+                self:ProcessReceivedMessage(deserializedMessage.type, deserializedMessage, sender)
+            end)
+            if not success2 then
+                if self.db.profile.debug.enabled then
+                    self:Print(string.format("DEBUG: ✗ ProcessReceivedMessage failed: %s", tostring(error2)))
+                end
+            else
+                if self.db.profile.debug.enabled then
+                    self:Print(string.format("DEBUG: ✓ ProcessReceivedMessage completed successfully"))
+                end
+            end
         else
             if self.db.profile.debug.enabled then
-                self:Print(string.format("DEBUG: ✗ Failed to deserialize GRPR_GRP_UPD from %s", sender))
+                if not pcall_success then
+                    self:Print(string.format("DEBUG: ✗ pcall failed for GRPR_GRP_UPD deserialization from %s", sender))
+                    self:Print(string.format("DEBUG: pcall Error: %s", tostring(deserialize_success)))
+                elseif not deserialize_success then
+                    self:Print(string.format("DEBUG: ✗ Failed to deserialize GRPR_GRP_UPD from %s", sender))
+                    self:Print(string.format("DEBUG: Deserialize Error: %s", tostring(deserializedMessage)))
+                else
+                    self:Print(string.format("DEBUG: ✗ Unexpected deserialization result from %s", sender))
+                end
+            end
+            return
+        end
+        
+        -- Process the successfully deserialized message
+        local success2, error2 = pcall(function()
+            self:ProcessReceivedMessage(deserializedMessage.type, deserializedMessage, sender)
+        end)
+        if not success2 then
+            if self.db.profile.debug.enabled then
+                self:Print(string.format("DEBUG: ✗ ProcessReceivedMessage failed: %s", tostring(error2)))
+            end
+        else
+            if self.db.profile.debug.enabled then
+                self:Print(string.format("DEBUG: ✓ ProcessReceivedMessage completed successfully"))
             end
         end
         return
@@ -1410,8 +1570,6 @@ function Grouper:OnCommReceived(prefix, message, distribution, sender)
         -- Handle compact format directly from AceComm (message already includes GRPR_GROUP# prefix)
         self:HandleCompactGroupUpdate(message, sender)
         return
-    elseif prefix == "GRPR_GRP_UPD" then
-        messageType = "GROUP_UPDATE"
     elseif prefix == "GROUP_UPDATE" then
         messageType = "GROUP_UPDATE"
         -- Handle compact format directly (no serialization needed)
@@ -1474,17 +1632,50 @@ function Grouper:OnCommReceived(prefix, message, distribution, sender)
         return
     end
     
+    if self.db.profile.debug.enabled then
+        self:Print(string.format("DEBUG: ✓ RECEIVED %s from %s, checking message format", prefix, sender))
+        self:Print(string.format("DEBUG: Raw message type: %s", type(message)))
+        self:Print(string.format("DEBUG: Raw message length: %d", string.len(tostring(message))))
+        self:Print(string.format("DEBUG: Message starts with: %s", string.sub(tostring(message), 1, 50)))
+    end
+    
     -- Deserialize the message (AceComm handles chunking automatically)
     local success, data = self:Deserialize(message)
     if not success then
         if self.db.profile.debug.enabled then
-            self:Print(string.format("DEBUG: Failed to deserialize AceComm message from %s", sender))
+            self:Print(string.format("DEBUG: ✗ Failed to deserialize AceComm message from %s", sender))
+            self:Print(string.format("DEBUG: Deserialize error: %s", tostring(data)))
+            self:Print(string.format("DEBUG: Trying to treat message as already deserialized..."))
+            -- Maybe the message is already the deserialized data?
+            if type(message) == "table" then
+                self:Print(string.format("DEBUG: Message is already a table! Processing directly."))
+                self:ProcessReceivedMessage(messageType, message, sender)
+                return
+            end
         end
         return
     end
     
     if self.db.profile.debug.enabled then
-        self:Print(string.format("DEBUG: Processing AceComm message from %s (type: %s)", sender, messageType))
+        self:Print(string.format("DEBUG: ✓ Successfully deserialized AceComm message from %s (type: %s)", sender, messageType))
+        if data then
+            self:Print(string.format("DEBUG: Deserialized data exists - calling ProcessReceivedMessage"))
+            -- Debug the data structure
+            self:Print(string.format("DEBUG: data.type = %s", tostring(data.type)))
+            self:Print(string.format("DEBUG: data.sender = %s", tostring(data.sender)))
+            if data.data then
+                self:Print(string.format("DEBUG: data.data exists - type: %s", type(data.data)))
+                if type(data.data) == "table" then
+                    self:Print(string.format("DEBUG: data.data.id = %s", tostring(data.data.id)))
+                    self:Print(string.format("DEBUG: data.data.title = %s", tostring(data.data.title)))
+                    self:Print(string.format("DEBUG: data.data.leader = %s", tostring(data.data.leader)))
+                end
+            else
+                self:Print("DEBUG: data.data is nil!")
+            end
+        else
+            self:Print(string.format("DEBUG: ERROR - Deserialized data is nil!"))
+        end
     end
     
     -- Process the message using the same logic as before
@@ -1493,6 +1684,11 @@ end
 
 -- Common message processing function
 function Grouper:ProcessReceivedMessage(messageType, data, sender)
+    if self.db.profile.debug.enabled then
+        self:Print(string.format("DEBUG: 🎯 ProcessReceivedMessage called: messageType=%s, sender=%s", tostring(messageType), tostring(sender)))
+        self:Print(string.format("DEBUG: data type: %s", type(data)))
+    end
+    
     -- Allow TEST messages from ourselves for debugging, but ignore other messages from ourselves
     if sender == UnitName("player") and messageType ~= "TEST" then
         if self.db.profile.debug.enabled then
@@ -1526,14 +1722,24 @@ function Grouper:ProcessReceivedMessage(messageType, data, sender)
     -- Handle different message types
     if messageType == "GROUP_UPDATE" then
         if self.db.profile.debug.enabled then
-            self:Print(string.format("DEBUG: Processing GROUP_UPDATE from %s", sender))
+            self:Print(string.format("DEBUG: 🎯 Processing GROUP_UPDATE from %s", sender))
             if data and data.data then
-                self:Print(string.format("DEBUG: Group data exists - ID: %s, Title: %s, Leader: %s", 
+                self:Print(string.format("DEBUG: ✓ Group data exists - ID: %s, Title: %s, Leader: %s", 
                     data.data.id or "nil",
                     data.data.title or "nil", 
                     data.data.leader or "nil"))
+                self:Print(string.format("DEBUG: ⚡ Calling HandleGroupUpdate..."))
             else
-                self:Print("DEBUG: data.data is nil or missing")
+                self:Print("DEBUG: ✗ ERROR - data.data is nil or missing!")
+                if data then
+                    self:Print("DEBUG: data exists but data.data is missing")
+                    -- Print data structure for debugging
+                    for k, v in pairs(data) do
+                        self:Print(string.format("DEBUG: data.%s = %s", k, tostring(v)))
+                    end
+                else
+                    self:Print("DEBUG: data itself is nil")
+                end
             end
         end
         
@@ -1542,7 +1748,7 @@ function Grouper:ProcessReceivedMessage(messageType, data, sender)
             self:HandleGroupUpdate(data.data, sender)
         else
             if self.db.profile.debug.enabled then
-                self:Print("DEBUG: ERROR - Cannot call HandleGroupUpdate, data.data is nil")
+                self:Print("DEBUG: ✗ ERROR - Cannot call HandleGroupUpdate, data.data is nil")
             end
         end
     elseif messageType == "REQUEST_DATA" then
@@ -2250,7 +2456,13 @@ function Grouper:SlashCommand(input)
         end)
         self:Print(string.format("Direct GRPR_GRP_UPD test: %s %s", success4 and "SUCCESS" or "FAILED", err4 or ""))
         
-        -- Test 4: Direct channel test (visible)
+        -- Test 5: WHISPER test to self
+        local success5, err5 = pcall(function()
+            self:SendComm("TEST", {message = "WHISPER test from " .. UnitName("player")}, "WHISPER", UnitName("player"), "NORMAL")
+        end)
+        self:Print(string.format("WHISPER test to self: %s %s", success5 and "SUCCESS" or "FAILED", err5 or ""))
+        
+        -- Test 6: Direct channel test (visible)
         local success4, err4 = pcall(function()
             SendChatMessage("GRPR_DIRECT_TEST:" .. UnitName("player"), "CHANNEL", nil, channelIndex)
         end)
@@ -2267,6 +2479,20 @@ function Grouper:SlashCommand(input)
             self:Print("Debug mode enabled")
         end
         self:Print(string.format("Debug is now %s", self.db.profile.debug.enabled and "ON" or "OFF"))
+    elseif command == "whisper" then
+        if not args[2] then
+            self:Print("Usage: /grouper whisper <playername>")
+            self:Print("Sends a test whisper to verify WHISPER communication works")
+            return
+        end
+        
+        local targetPlayer = args[2]
+        self:Print(string.format("Testing WHISPER communication to %s...", targetPlayer))
+        
+        local success, err = pcall(function()
+            self:SendComm("TEST", {message = "WHISPER test from " .. UnitName("player")}, "WHISPER", targetPlayer, "NORMAL")
+        end)
+        self:Print(string.format("WHISPER test to %s: %s %s", targetPlayer, success and "SUCCESS" or "FAILED", err or ""))
     elseif command == "presence" then
         if args[2] and args[2]:lower() == "off" then
             self.db.profile.disablePresence = true
