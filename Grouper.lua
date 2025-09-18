@@ -55,6 +55,40 @@ local DUNGEONS = {
     {name = "Naxxramas", minLevel = 60, maxLevel = 60, type = "raid", faction = "Both"},
 }
 
+-- Classic Era API Compatibility Functions
+local function GetGroupSize()
+    -- Returns number of people in your group (including yourself)
+    if GetNumRaidMembers and GetNumRaidMembers() > 0 then
+        return GetNumRaidMembers()
+    elseif GetNumPartyMembers and GetNumPartyMembers() > 0 then
+        return GetNumPartyMembers()
+    else
+        return 0 -- Solo
+    end
+end
+
+local function IsInGroup()
+    return GetGroupSize() > 0
+end
+
+local function IsInRaidGroup()
+    return GetNumRaidMembers and GetNumRaidMembers() > 0 or false
+end
+
+local function IsInPartyGroup()
+    return GetNumPartyMembers and GetNumPartyMembers() > 0 or false
+end
+
+local function IsGroupLeader()
+    if IsInRaidGroup() then
+        return IsRaidLeader and IsRaidLeader() or false
+    elseif IsInPartyGroup() then
+        return IsPartyLeader and IsPartyLeader() or false
+    else
+        return false
+    end
+end
+
 -- Data structures
 Grouper.groups = {}
 Grouper.players = {}
@@ -124,6 +158,7 @@ function Grouper:OnInitialize()
     self.groups = {}
     self.players = {}
     self.multiPartMessages = {} -- Storage for incomplete multi-part messages
+    self.grouperChannelNumber = nil -- Cache for our Grouper channel number
     
     -- Register chat commands
     self:RegisterChatCommand("grouper", "SlashCommand")
@@ -156,23 +191,81 @@ function Grouper:OnEnable()
     self:RegisterEvent("CHAT_MSG_CHANNEL_JOIN", "OnChannelJoin")
     self:RegisterEvent("CHAT_MSG_CHANNEL_LEAVE", "OnChannelLeave")
     
-    -- Register for channel messages to receive our protocol messages
+    -- Register for channel messages to receive our protocol messages (keeping for backward compatibility)
     self:RegisterEvent("CHAT_MSG_CHANNEL", "OnChannelMessage")
+    
+    -- Register AceComm message handlers for new communication system (16 char limit)
+    self:RegisterComm("GRPR_GROUP", "OnCommReceived")       -- Compact GROUP_UPDATE with ChatThrottleLib
+    self:RegisterComm("GRPR_GRP_UPD", "OnCommReceived")     -- GROUP_UPDATE
+    self:RegisterComm("GROUP_UPDATE", "OnCommReceived")     -- Direct GROUP_UPDATE for responses
+    self:RegisterComm("GRPR_REQ_DATA", "OnCommReceived")    -- REQUEST_DATA  
+    self:RegisterComm("GRPR_PRESENCE", "OnCommReceived")    -- PRESENCE
+    self:RegisterComm("GRPR_TEST", "OnCommReceived")        -- TEST
+    self:RegisterComm("GRPR_GRP_UPD", "OnCommReceived")     -- GROUP_UPDATE through SendComm (16 chars max)
+    
+    if self.db.profile.debug.enabled then
+        self:Print("DEBUG: 📡 Registered AceComm prefixes: GROUP_UPDATE, GRPR_REQ_DATA, GRPR_PRESENCE, GRPR_TEST, GRPR_GRP_UPD")
+    end
+    
+    -- Register GROUPER_ prefixes for standard AceComm communication
+    self:RegisterComm("GROUPER_TEST", "OnCommReceived")         -- Test messages (12 chars)
+    self:RegisterComm("GRPR_CHUNK_REQ", "OnCommReceived")       -- Chunk requests (13 chars)
+    self:RegisterComm("GRPR_CHUNK_RES", "OnCommReceived")       -- Chunk resends (13 chars)
     
     -- Check if already in channel, but don't auto-join
     self:ScheduleTimer("CheckInitialChannelStatus", 3)
     
-    -- Start periodic tasks
-    self:ScheduleRepeatingTimer("CleanupOldGroups", 60) -- Clean up every minute
-    self:ScheduleRepeatingTimer("BroadcastPresence", 300) -- Broadcast presence every 5 minutes
-    self:ScheduleRepeatingTimer("CleanupOldMultiPartMessages", 120) -- Clean up incomplete messages every 2 minutes
+    -- Cancel any existing repeating timers to prevent conflicts after reload
+    -- (Don't cancel all timers as it would cancel the CheckInitialChannelStatus timer above)
+    if self.presenceTimer then
+        self:CancelTimer(self.presenceTimer)
+    end
+    if self.cleanupTimer then
+        self:CancelTimer(self.cleanupTimer)
+    end
+    if self.chunksCleanupTimer then
+        self:CancelTimer(self.chunksCleanupTimer)
+    end
+    
+    -- Start periodic tasks and store timer handles
+    self.cleanupTimer = self:ScheduleRepeatingTimer("CleanupOldGroups", 60) -- Clean up every minute
+    -- Disable presence timer to prevent protected function issues: self.presenceTimer = self:ScheduleRepeatingTimer("BroadcastPresence", 600)
+    self.chunksCleanupTimer = self:ScheduleRepeatingTimer("CleanupOldAceCommChunks", 120) -- Clean up incomplete AceComm chunks every 2 minutes
+end
+
+function Grouper:OnDisable()
+    -- Cancel specific timers when the addon is disabled
+    if self.presenceTimer then
+        self:CancelTimer(self.presenceTimer)
+        self.presenceTimer = nil
+    end
+    if self.cleanupTimer then
+        self:CancelTimer(self.cleanupTimer)
+        self.cleanupTimer = nil
+    end
+    if self.chunksCleanupTimer then
+        self:CancelTimer(self.chunksCleanupTimer)
+        self.chunksCleanupTimer = nil
+    end
+    if self.flushTimer then
+        self:CancelTimer(self.flushTimer)
+        self.flushTimer = nil
+    end
+    
+    if self.db.profile.debug.enabled then
+        self:Print("DEBUG: Addon disabled, repeating timers cancelled")
+    end
 end
 
 function Grouper:CheckInitialChannelStatus()
     local channelIndex = GetChannelName(ADDON_CHANNEL)
     if channelIndex > 0 then
         self.channelJoined = true
+        self.grouperChannelNumber = channelIndex  -- Initialize cache on startup
         self:Print("Connected to Grouper channel!")
+        if self.db.profile.debug.enabled then
+            self:Print(string.format("DEBUG: Initialized channel cache to %d on startup", channelIndex))
+        end
     else
         self:Print("Use /grouper show to open the group finder (will auto-join channel)")
     end
@@ -215,7 +308,11 @@ function Grouper:CheckChannelJoinResult()
     local channelIndex = GetChannelName(ADDON_CHANNEL)
     if channelIndex > 0 then
         self.channelJoined = true
+        self.grouperChannelNumber = channelIndex  -- Cache the channel number after joining
         self:Print("Successfully connected to Grouper channel!")
+        if self.db.profile.debug.enabled then
+            self:Print(string.format("DEBUG: Cached channel number %d after joining", channelIndex))
+        end
     else
         self:Print("Failed to auto-join channel. Please manually type: /join Grouper")
     end
@@ -237,13 +334,16 @@ function Grouper:CheckChannelStatus()
             self.channelJoined = true
             self:Print("Successfully connected to Grouper channel!")
             -- Request current group data from other users
+            if self.db.profile.debug.enabled then
+                self:Print("DEBUG: Requesting group data from other players")
+            end
             self:SendComm("REQUEST_DATA", {type = "request", timestamp = time()})
         else
             -- Still not connected, try again
             if self.db.profile.debug.enabled then
                 self:Print("DEBUG: Still connecting to Grouper channel...")
             end
-            self:ScheduleTimer("JoinGrouperChannel", 5)
+            self:ScheduleTimer("EnsureChannelJoined", 5)
         end
     end
 end
@@ -251,8 +351,12 @@ end
 function Grouper:OnChannelJoin(event, text, playerName, languageName, channelName, playerName2, specialFlags, zoneChannelID, channelIndex, channelBaseName, unused, lineID, guid, bnSenderID, isMobile, isSubtitle, hideSenderInLetterbox, supressRaidIcons)
     if channelBaseName == ADDON_CHANNEL and playerName == UnitName("player") then
         self.channelJoined = true
-        self:Print("Successfully joined Grouper channel!")
+        self.grouperChannelNumber = channelIndex -- Cache the channel number
+        self:Print(string.format("Successfully joined Grouper channel %d!", channelIndex))
         -- Request current group data from other users
+        if self.db.profile.debug.enabled then
+            self:Print("DEBUG: Requesting group data from other players")
+        end
         self:SendComm("REQUEST_DATA", {type = "request", timestamp = time()})
     end
 end
@@ -260,8 +364,9 @@ end
 function Grouper:OnChannelLeave(event, text, playerName, languageName, channelName, playerName2, specialFlags, zoneChannelID, channelIndex, channelBaseName)
     if channelBaseName == ADDON_CHANNEL and playerName == UnitName("player") then
         self.channelJoined = false
+        self.grouperChannelNumber = nil -- Clear cached channel number
         self:Print("Disconnected from Grouper channel. Reconnecting...")
-        self:ScheduleTimer("JoinGrouperChannel", 5)
+        self:ScheduleTimer("EnsureChannelJoined", 5)
     end
 end
 
@@ -270,16 +375,10 @@ function Grouper:OnPartyChanged(event)
         self:Print(string.format("DEBUG: Group changed event: %s", event or "unknown"))
     end
     
-    -- Get current group information
-    local inParty = GetNumPartyMembers() > 0
-    local inRaid = GetNumRaidMembers() > 0
-    local isLeader = false
-    
-    if inRaid then
-        isLeader = IsRaidLeader()
-    elseif inParty then
-        isLeader = IsPartyLeader()
-    end
+    -- Get current group information with Classic Era compatibility
+    local inParty = IsInPartyGroup()
+    local inRaid = IsInRaidGroup()
+    local isLeader = IsGroupLeader()
     
     if self.db.profile.debug.enabled then
         self:Print(string.format("DEBUG: Party: %s, Raid: %s, Leader: %s", 
@@ -287,11 +386,13 @@ function Grouper:OnPartyChanged(event)
     end
     
     -- Update our current group status
+    local partySize = GetGroupSize()
+    
     self.currentGroupInfo = {
         inParty = inParty,
         inRaid = inRaid,
         isLeader = isLeader,
-        partySize = inRaid and GetNumRaidMembers() or (inParty and GetNumPartyMembers() or 0),
+        partySize = partySize,
         timestamp = time()
     }
     
@@ -305,8 +406,7 @@ function Grouper:OnPartyChanged(event)
         self:HandleLeftGroup()
     end
     
-    -- Update our presence broadcast
-    self:BroadcastPresence()
+    -- Disable presence broadcast to prevent protected function issues: self:BroadcastPresence()
     
     -- Refresh UI if it's open
     if self.mainFrame and self.mainFrame:IsShown() then
@@ -345,13 +445,16 @@ function Grouper:HandleLeftGroup()
     -- No automatic action needed, just update state
 end
 
--- Communication functions
-function Grouper:SendComm(messageType, data, distribution, target)
-    if not self.channelJoined then
-        if self.db.profile.debug.enabled then
-            self:Print("DEBUG: Cannot send message - not connected to channel")
-        end
-        return
+-- Communication functions using AceComm-3.0
+function Grouper:SendComm(messageType, data, distribution, target, priority)
+    -- For GROUP_UPDATE, use direct channel messaging since AceComm CHANNEL distribution isn't working
+    if messageType == "GROUP_UPDATE" then
+        return self:SendGroupUpdateViaChannel(data)
+    end
+    
+    -- All other communication uses AceComm for reliability
+    if self.db.profile.debug.enabled then
+        self:Print(string.format("DEBUG: ⚡ SendComm called with messageType='%s'", messageType))
     end
     
     local message = {
@@ -362,243 +465,1100 @@ function Grouper:SendComm(messageType, data, distribution, target)
         data = data
     }
     
-    local serializedData = self:Serialize(message)
-    
     if self.db.profile.debug.enabled then
-        self:Print(string.format("DEBUG: Serialized data length: %d", string.len(serializedData)))
-        self:Print(string.format("DEBUG: Serialized preview: %s", string.sub(serializedData, 1, 50) .. "..."))
+        self:Print(string.format("DEBUG: Sending %s message via AceComm", messageType))
     end
     
-    -- Handle different distribution types
-    if not distribution or distribution == "CHANNEL" then
-        -- Get the channel number for our custom channel
-        local channelIndex = GetChannelName(ADDON_CHANNEL)
-        if channelIndex > 0 then
-            -- Use regular SendChatMessage with our own protocol (like Greenwall does)
-            local protocolMessage = string.format("GRPR#%s#%s", messageType, serializedData)
-            
-            -- Check message length (WoW has a ~255 character limit for chat messages)
-            local messageLength = string.len(protocolMessage)
-            local maxLength = 250 -- Leave some buffer
-            
-            if messageLength > maxLength then
-                -- Message is too long, split into multiple parts
-                if self.db.profile.debug.enabled then
-                    self:Print(string.format("DEBUG: Message too long (%d chars), splitting into parts", messageLength))
-                end
-                self:SendMultiPartMessage(messageType, serializedData, channelIndex)
-            else
-                -- Message fits in one part
-                if self.db.profile.debug.enabled then
-                    self:Print(string.format("DEBUG: About to send via SendChatMessage: channel=%d", channelIndex))
-                    self:Print(string.format("DEBUG: Protocol message length: %d", messageLength))
-                    self:Print(string.format("DEBUG: Message preview: %s", string.sub(protocolMessage, 1, 50) .. "..."))
-                end
-                
-                -- Use pcall to catch any errors
-                local success, errorMsg = pcall(SendChatMessage, protocolMessage, "CHANNEL", nil, channelIndex)
-                
-                if success then
-                    if self.db.profile.debug.enabled then
-                        self:Print(string.format("DEBUG: SendChatMessage sent successfully to channel %d", channelIndex))
-                    end
-                else
-                    if self.db.profile.debug.enabled then
-                        self:Print(string.format("DEBUG: SendChatMessage failed: %s", tostring(errorMsg)))
-                    end
-                end
-            end
-        else
-            if self.db.profile.debug.enabled then
-                self:Print("DEBUG: Channel not found, cannot send message")
-            end
-        end
-    else
-        -- For whisper or other distribution types, still use AceComm
-        self:SendCommMessage(COMM_PREFIX, serializedData, distribution, target)
+    -- Use AceComm for all communication with appropriate priority
+    local commPriority = priority or "NORMAL"
+    if messageType == "TEST" then
+        commPriority = "ALERT"  -- Use ALERT priority for immediate test message delivery
+    end
+    local distributionType = distribution or "CHANNEL"  -- Default to CHANNEL for server-wide communication
+    local commTarget = target
+    
+    -- For server-wide broadcasts, use CHANNEL distribution with the Grouper channel number
+    if distributionType == "CHANNEL" then
+        local channelIndex = self:GetGrouperChannelIndex()
         if self.db.profile.debug.enabled then
-            self:Print(string.format("DEBUG: Sent %s via %s to %s", messageType, distribution, target or "unknown"))
+            self:Print(string.format("DEBUG: ⚡ GetGrouperChannelIndex() returned: %d", channelIndex))
         end
+        if channelIndex <= 0 then
+            if self.db.profile.debug.enabled then
+                self:Print("DEBUG: ✗ Cannot send AceComm - not in Grouper channel")
+            end
+            return false
+        end
+        commTarget = channelIndex  -- Use the channel number for AceComm
+    end
+    
+    local success, errorMsg = pcall(function()
+        local prefix = "GRPR_" .. messageType
+        -- Shorten GROUP_UPDATE to fit 16-char limit
+        if messageType == "GROUP_UPDATE" then
+            prefix = "GRPR_GRP_UPD"
+        end
+        if self.db.profile.debug.enabled then
+            self:Print(string.format("DEBUG: ⚡ Sending AceComm with prefix='%s' to channel %d", prefix, commTarget))
+        end
+        self:SendCommMessage(prefix, self:Serialize(message), distributionType, commTarget, commPriority)
+    end)
+    
+    if success then
+        if self.db.profile.debug.enabled then
+            self:Print(string.format("DEBUG: ✓ AceComm %s sent successfully via %s", messageType, distributionType))
+        end
+        return true
+    else
+        if self.db.profile.debug.enabled then
+            self:Print(string.format("DEBUG: ✗ FAILED to send AceComm %s: %s", messageType, tostring(errorMsg)))
+        end
+        return false
     end
 end
 
-function Grouper:SendMultiPartMessage(messageType, serializedData, channelIndex)
-    local maxDataLength = 200 -- Leave room for protocol headers
-    local messageId = tostring(time() .. math.random(1000, 9999)) -- Unique ID for this message
-    local totalLength = string.len(serializedData)
-    local numParts = math.ceil(totalLength / maxDataLength)
-    
-    if self.db.profile.debug.enabled then
-        self:Print(string.format("DEBUG: Splitting into %d parts, message ID: %s", numParts, messageId))
-    end
-    
-    for i = 1, numParts do
-        local startPos = (i - 1) * maxDataLength + 1
-        local endPos = math.min(i * maxDataLength, totalLength)
-        local dataPart = string.sub(serializedData, startPos, endPos)
-        
-        -- Multi-part protocol: GRPR_MP#messageId#partNum#totalParts#messageType#dataPart
-        local multiPartMessage = string.format("GRPR_MP#%s#%d#%d#%s#%s", messageId, i, numParts, messageType, dataPart)
-        
+-- Helper function to get cached channel number with fallback
+function Grouper:GetGrouperChannelIndex()
+    -- Use cached value if available
+    if self.grouperChannelNumber and self.grouperChannelNumber > 0 then
         if self.db.profile.debug.enabled then
-            self:Print(string.format("DEBUG: Sending part %d/%d, length: %d", i, numParts, string.len(multiPartMessage)))
+            self:Print(string.format("DEBUG: Using cached channel number: %d", self.grouperChannelNumber))
         end
-        
-        local success, errorMsg = pcall(SendChatMessage, multiPartMessage, "CHANNEL", nil, channelIndex)
-        if not success then
-            if self.db.profile.debug.enabled then
-                self:Print(string.format("DEBUG: Failed to send part %d: %s", i, tostring(errorMsg)))
-            end
-            return
+        return self.grouperChannelNumber
+    end
+    
+    -- Fallback to lookup and cache the result
+    local channelIndex = GetChannelName(ADDON_CHANNEL)
+    if channelIndex > 0 then
+        self.grouperChannelNumber = channelIndex
+        if self.db.profile.debug.enabled then
+            self:Print(string.format("DEBUG: Caching new channel number: %d", channelIndex))
         end
     end
     
+    return channelIndex
+end
+
+function Grouper:SendGroupUpdateViaChannel(groupData)
+    -- Use direct channel messaging like the working direct channel test
+    local channelIndex = self:GetGrouperChannelIndex()
+    if channelIndex <= 0 then
+        if self.db.profile.debug.enabled then
+            self:Print("DEBUG: ✗ Cannot send GROUP_UPDATE - not in Grouper channel")
+        end
+        return false
+    end
+    
+    -- Use the same encoding logic as SendGroupUpdateDirectly
+    local title = groupData.title or ""
+    if string.len(title) > 20 then
+        title = string.sub(title, 1, 20)
+    end
+    
+    local location = groupData.location or ""
+    if string.len(location) > 20 then
+        location = string.sub(location, 1, 20)
+    end
+    
+    -- Encode the event type as a number (1=Dungeon, 2=Raid, 3=Quest, 4=PvP, 5=Other)
+    local typeId = groupData.typeId or 1
+    
+    -- Encode the selected dungeon as a number (0 = no specific dungeon)
+    local dungeonId = 0
+    if groupData.dungeons and next(groupData.dungeons) then
+        -- Find the first selected dungeon and use its index
+        for dungeonName, selected in pairs(groupData.dungeons) do
+            if selected then
+                for i, dungeon in ipairs(DUNGEONS) do
+                    if dungeon.name == dungeonName then
+                        dungeonId = i
+                        break
+                    end
+                end
+                break -- Use first selected dungeon
+            end
+        end
+    end
+    
+    -- Encode the leader's role as a number (1=Tank, 2=Healer, 3=DPS)
+    local roleId = 3 -- Default to DPS
+    local leaderName = groupData.leader or UnitName("player")
+    local leaderRole = nil
+    
+    -- Get role from group members
+    if groupData.members and groupData.members[leaderName] then
+        leaderRole = groupData.members[leaderName].role
+    end
+    
+    -- If not found, try groupData.role or groupData.myRole
+    if not leaderRole then
+        leaderRole = groupData.role or groupData.myRole
+    end
+    
+    -- Convert role string to roleId
+    if leaderRole then
+        if leaderRole == "tank" then
+            roleId = 1
+        elseif leaderRole == "healer" then
+            roleId = 2
+        elseif leaderRole == "dps" then
+            roleId = 3
+        end
+    end
+    
+    -- Create compact encoded message: GRPR_GROUP_UPDATE:id:title:typeId:dungeonId:currentSize:maxSize:location:timestamp:leader:roleId
+    local message = string.format("GRPR_GROUP_UPDATE:%s:%s:%d:%d:%d:%d:%s:%d:%s:%d",
+        groupData.id or "",
+        title,
+        typeId,
+        dungeonId,
+        groupData.currentSize or 1,
+        groupData.maxSize or 5,
+        location,
+        groupData.timestamp or time(),
+        groupData.leader or UnitName("player"),
+        roleId
+    )
+    
     if self.db.profile.debug.enabled then
-        self:Print(string.format("DEBUG: Sent all %d parts successfully", numParts))
+        self:Print(string.format("DEBUG: ⚡ Sending encoded GROUP_UPDATE via direct channel %d: %s", channelIndex, message))
+    end
+    
+    -- Send via direct channel message (same method as working direct channel test)
+    SendChatMessage(message, "CHANNEL", nil, channelIndex)
+    
+    if self.db.profile.debug.enabled then
+        self:Print("DEBUG: ✓ GROUP_UPDATE sent via direct channel")
+    end
+    
+    return true
+end
+
+function Grouper:HandleDirectGroupUpdate(message, sender)
+    -- Parse: GRPR_GROUP_UPDATE:id:title:typeId:dungeonId:currentSize:maxSize:location:timestamp:leader:roleId
+    local parts = {string.split(":", message)}
+    if #parts < 11 then
+        if self.db.profile.debug.enabled then
+            self:Print(string.format("DEBUG: Invalid direct GROUP_UPDATE format from %s (got %d parts, expected 11)", sender, #parts))
+        end
+        return
+    end
+    
+    local typeId = tonumber(parts[4]) or 1
+    local dungeonId = tonumber(parts[5]) or 0
+    local roleId = tonumber(parts[11]) or 3
+    
+    -- Decode type information
+    local typeNames = {
+        [1] = "dungeon",
+        [2] = "raid", 
+        [3] = "quest",
+        [4] = "pvp",
+        [5] = "other"
+    }
+    local groupType = typeNames[typeId] or "dungeon"
+    
+    -- Reconstruct level ranges from DUNGEONS table
+    local minLevel = 1
+    local maxLevel = 60
+    local dungeonName = ""
+    
+    if dungeonId > 0 and dungeonId <= #DUNGEONS then
+        local dungeon = DUNGEONS[dungeonId]
+        minLevel = dungeon.minLevel
+        maxLevel = dungeon.maxLevel
+        dungeonName = dungeon.name
+    elseif groupType == "dungeon" then
+        -- Default dungeon level range
+        minLevel = 13
+        maxLevel = 18
+    elseif groupType == "raid" then
+        -- Default raid level range
+        minLevel = 50
+        maxLevel = 60
+    end
+    
+    -- Decode role information
+    local roleNames = {
+        [1] = "tank",
+        [2] = "healer",
+        [3] = "dps"
+    }
+    local leaderRole = roleNames[roleId] or "dps"
+    
+    local groupData = {
+        id = parts[2],
+        title = parts[3], 
+        type = groupType,
+        typeId = typeId,
+        leader = parts[10],
+        timestamp = tonumber(parts[9]) or time(),
+        currentSize = tonumber(parts[6]) or 1,
+        maxSize = tonumber(parts[7]) or 5,
+        location = parts[8] or "",
+        minLevel = minLevel,
+        maxLevel = maxLevel,
+        dungeons = dungeonId > 0 and {[dungeonName] = true} or {},
+        members = {
+            [parts[10]] = {
+                name = parts[10],
+                role = leaderRole
+            }
+        }
+    }
+    
+    if self.db.profile.debug.enabled then
+        self:Print(string.format("DEBUG: Processing encoded GROUP_UPDATE: %s (%s) type=%s, dungeon=%s, levels=%d-%d from %s", 
+            groupData.id, groupData.title, groupData.type, dungeonName, minLevel, maxLevel, sender))
+    end
+    
+    -- Use the same processing as other group updates
+    self:HandleGroupUpdate(groupData, sender)
+end
+
+function Grouper:SendGroupUpdateDirectly(groupData)
+    -- Send GROUP_UPDATE using AceComm with ChatThrottleLib and BULK priority
+    if self.db.profile.debug.enabled then
+        self:Print("DEBUG: Sending GROUP_UPDATE using AceComm with ChatThrottleLib and BULK priority")
+    end
+    
+    -- Create a simplified compact message format with dungeon, type, and role encoding
+    -- Format: GRPR_GROUP#id#title(20)#typeId#dungeonId#currentSize#maxSize#location(20)#timestamp#leader#roleId
+    local title = groupData.title or ""
+    if string.len(title) > 20 then
+        title = string.sub(title, 1, 20)
+    end
+    
+    local location = groupData.location or ""
+    if string.len(location) > 20 then
+        location = string.sub(location, 1, 20)
+    end
+    
+    -- Encode the event type as a number (1=Dungeon, 2=Raid, 3=Quest, 4=PvP, 5=Other)
+    local typeId = groupData.typeId or 1
+    
+    -- Encode the selected dungeon as a number (0 = no specific dungeon)
+    local dungeonId = 0
+    if groupData.dungeons and next(groupData.dungeons) then
+        -- Find the first selected dungeon and use its index
+        for dungeonName, selected in pairs(groupData.dungeons) do
+            if selected then
+                for i, dungeon in ipairs(DUNGEONS) do
+                    if dungeon.name == dungeonName then
+                        dungeonId = i
+                        break
+                    end
+                end
+                break -- Use first selected dungeon
+            end
+        end
+    end
+    
+    -- Encode the leader's role as a number (1=Tank, 2=Healer, 3=DPS)
+    -- Get the actual role from group members or groupData, ignoring "leader" as a role
+    local roleId = 3 -- Default to DPS
+    local leaderName = groupData.leader or UnitName("player")
+    local leaderRole = nil
+    
+    -- First try to get role from group members
+    if groupData.members and groupData.members[leaderName] then
+        leaderRole = groupData.members[leaderName].role
+    end
+    
+    -- If not found, try groupData.role or groupData.myRole
+    if not leaderRole then
+        leaderRole = groupData.role or groupData.myRole
+    end
+    
+    -- Convert role string to roleId, ignoring "leader" since that's a status, not a role
+    if leaderRole then
+        if leaderRole == "tank" then
+            roleId = 1
+        elseif leaderRole == "healer" then
+            roleId = 2
+        elseif leaderRole == "dps" then
+            roleId = 3
+        -- If role is "leader", we keep the default DPS (3)
+        end
+    end
+    
+    local compactMessage = string.format("GRPR_GROUP#%s#%s#%d#%d#%d#%d#%s#%d#%s#%d",
+        groupData.id or "",
+        title,
+        typeId,
+        dungeonId,
+        groupData.currentSize or 1,
+        groupData.maxSize or 5,
+        location,
+        groupData.timestamp or time(),
+        groupData.leader or UnitName("player"),
+        roleId
+    )
+    
+    if self.db.profile.debug.enabled then
+        self:Print(string.format("DEBUG: Sending type+dungeon+role-encoded GROUP_UPDATE (%d chars): %s", 
+            string.len(compactMessage), compactMessage))
+    end
+    
+    -- Use AceComm with ChatThrottleLib and NORMAL priority for timely delivery
+    -- This provides proper throttling while ensuring group updates arrive promptly
+    local channelIndex = self:GetGrouperChannelIndex()
+    if channelIndex <= 0 then
+        if self.db.profile.debug.enabled then
+            self:Print("DEBUG: ✗ Cannot send GROUP_UPDATE - not in Grouper channel")
+        end
+        return false
+    end
+    
+    local success, errorMsg = pcall(function()
+        self:SendCommMessage("GRPR_GROUP", compactMessage, "CHANNEL", channelIndex, "NORMAL")
+    end)
+    
+    if success then
+        if self.db.profile.debug.enabled then
+            self:Print("DEBUG: ✓ AceComm GROUP_UPDATE sent successfully with NORMAL priority")
+        end
+        return true
+    else
+        if self.db.profile.debug.enabled then
+            self:Print(string.format("DEBUG: ✗ FAILED to send AceComm GROUP_UPDATE: %s", tostring(errorMsg)))
+        end
+        return false
     end
 end
 
 function Grouper:OnChannelMessage(event, message, sender, language, channelString, target, flags, unknown, channelNumber, channelName, instanceID)
-    -- Only process messages from our Grouper channel
-    local grouperChannelIndex = GetChannelName(ADDON_CHANNEL)
-    if channelNumber ~= grouperChannelIndex then
+    -- Process messages from any "Grouper" channel regardless of number
+    if channelName ~= ADDON_CHANNEL then
+        -- Only show debug for non-Grouper channels if specifically requested
+        if self.db.profile.debug.enabled and self.db.profile.debug.showAllChannels then
+            self:Print(string.format("DEBUG: [OTHER CHANNEL] Ignoring message from channel '%s' (not '%s')", channelName or "nil", ADDON_CHANNEL))
+        end
         return
     end
     
-    -- Check if this is our protocol message
-    if not message:match("^GRPR#") and not message:match("^GRPR_MP#") then
+    -- Ignore messages from ourselves to prevent self-processing
+    local playerName = UnitName("player")
+    local playerServer = GetRealmName()
+    -- Normalize realm name by removing spaces (WoW chat shows "OldBlanchy" but GetRealmName() returns "Old Blanchy")
+    if playerServer then
+        playerServer = playerServer:gsub("%s+", "")
+    end
+    local fullPlayerName = playerName .. "-" .. playerServer
+    
+    if self.db.profile.debug.enabled then
+        self:Print(string.format("DEBUG: Self-check - playerName: '%s', playerServer: '%s', fullPlayerName: '%s', sender: '%s'", 
+            playerName or "nil", playerServer or "nil", fullPlayerName or "nil", sender or "nil"))
+    end
+    
+    if sender == playerName or sender == fullPlayerName then
+        if self.db.profile.debug.enabled then
+            self:Print(string.format("DEBUG: Ignoring message from self (%s)", sender))
+        end
+        return
+    end
+    
+    -- Debug: Log Grouper channel messages only
+    if self.db.profile.debug.enabled then
+        self:Print(string.format("DEBUG: [RAW EVENT] CHAT_MSG_CHANNEL fired - Channel: %d (%s), Sender: %s", channelNumber or 0, channelName or "nil", sender or "nil"))
+    end
+    
+    -- Check for direct test messages
+    if message:match("^GRPR_DIRECT_TEST:") then
+        local testSender = message:match("^GRPR_DIRECT_TEST:(.+)")
+        if self.db.profile.debug.enabled then
+            self:Print(string.format("DEBUG: ✓ RECEIVED DIRECT CHANNEL TEST from %s (sent by %s)", sender, testSender))
+        end
+        return
+    end
+    
+    -- Check for direct GROUP_UPDATE messages
+    if message:match("^GRPR_GROUP_UPDATE:") then
+        if self.db.profile.debug.enabled then
+            self:Print(string.format("DEBUG: ✓ RECEIVED DIRECT CHANNEL GROUP_UPDATE from %s", sender))
+        end
+        self:HandleDirectGroupUpdate(message, sender)
+        return
+    end
+    
+    -- Check if this is our protocol message (legacy GRPR# or GRPR_GROUP# or GRPR_MP# or GRPR_REQ# or new AceComm-style GROUPER_)
+    if not message:match("^GRPR#") and not message:match("^GRPR_GROUP#") and not message:match("^GRPR_MP#") and not message:match("^GRPR_REQ#") and not message:match("^GROUPER_") then
+        if self.db.profile.debug.enabled then
+            self:Print(string.format("DEBUG: Message doesn't match any protocol: %s", string.sub(message, 1, 50)))
+        end
         return -- Not our protocol
     end
     
     if self.db.profile.debug.enabled then
-        self:Print(string.format("DEBUG: Received channel message from %s: %s", sender, string.sub(message, 1, 100) .. "..."))
+        self:Print(string.format("DEBUG: [CHANNEL] Received message from %s: %s", sender, string.sub(message, 1, 100) .. "..."))
     end
     
-    -- Handle multi-part messages
-    if message:match("^GRPR_MP#") then
-        -- Multi-part protocol: GRPR_MP#messageId#partNum#totalParts#messageType#dataPart
-        local _, messageId, partNumStr, totalPartsStr, messageType, dataPart = strsplit("#", message, 6)
-        if not messageId or not partNumStr or not totalPartsStr or not messageType or not dataPart then
-            if self.db.profile.debug.enabled then
-                self:Print("DEBUG: Invalid multi-part message format")
-            end
-            return
+    -- Handle AceComm-style messages
+    if message:match("^GROUPER_") then
+        self:HandleAceCommStyleMessage(message, sender)
+    elseif message:match("^GRPR_GROUP#") then
+        -- Handle compact group updates
+        self:HandleCompactGroupUpdate(message, sender)
+    elseif message:match("^GRPR_REQ#") then
+        -- Handle chunk resend requests
+        self:HandleChunkRequest(message, sender)
+    elseif message:match("^GRPR_MP#") then
+        -- Handle legacy multi-part messages
+        self:HandleLegacyMultiPartMessage(message, sender)
+    else
+        -- Handle legacy GRPR# messages
+        self:HandleLegacyMessage(message, sender)
+    end
+end
+
+-- Handle AceComm-style messages sent via channel
+function Grouper:HandleAceCommStyleMessage(message, sender)
+    if self.db.profile.debug.enabled then
+        self:Print(string.format("DEBUG: Processing AceComm-style channel message from %s", sender))
+    end
+    
+    -- Parse AceComm-style message: GROUPER_TYPE#data or GROUPER_TYPE#msgid#chunk#total#data
+    local parts = {strsplit("#", message)}
+    local prefix = parts[1] -- GROUPER_MESSAGE_TYPE
+    
+    if not prefix then
+        if self.db.profile.debug.enabled then
+            self:Print("DEBUG: Invalid AceComm-style message format")
         end
-        
-        local partNum = tonumber(partNumStr)
-        local totalParts = tonumber(totalPartsStr)
+        return
+    end
+    
+    -- Extract message type from prefix
+    local messageType = prefix:match("^GROUPER_(.+)$")
+    if not messageType then
+        if self.db.profile.debug.enabled then
+            self:Print(string.format("DEBUG: Invalid AceComm prefix: %s", prefix))
+        end
+        return
+    end
+    
+    if #parts == 2 then
+        -- Single message: GROUPER_TYPE#data
+        local serializedData = parts[2]
+        local success, data = self:Deserialize(serializedData)
+        if success then
+            if self.db.profile.debug.enabled then
+                self:Print(string.format("DEBUG: Successfully processed single AceComm-style message"))
+            end
+            self:ProcessReceivedMessage(messageType, data, sender)
+        else
+            if self.db.profile.debug.enabled then
+                self:Print("DEBUG: Failed to deserialize AceComm-style message")
+            end
+        end
+    elseif #parts == 5 then
+        -- Multi-part message: GROUPER_TYPE#msgid#chunk#total#data
+        local messageId = parts[2]
+        local chunkNum = tonumber(parts[3])
+        local totalChunks = tonumber(parts[4])
+        local chunkData = parts[5]
         
         if self.db.profile.debug.enabled then
-            self:Print(string.format("DEBUG: Received part %d/%d of message %s from %s", partNum, totalParts, messageId, sender))
+            self:Print(string.format("DEBUG: Received AceComm chunk %d/%d of message %s", chunkNum, totalChunks, messageId))
         end
         
-        -- Initialize multi-part storage if it doesn't exist
-        if not self.multiPartMessages then
-            self.multiPartMessages = {}
+        -- Initialize chunk storage if needed
+        if not self.aceCommChunks then
+            self.aceCommChunks = {}
         end
         
-        -- Initialize this message's storage if it doesn't exist
-        if not self.multiPartMessages[messageId] then
-            self.multiPartMessages[messageId] = {
-                parts = {},
-                totalParts = totalParts,
+        if not self.aceCommChunks[messageId] then
+            self.aceCommChunks[messageId] = {
+                chunks = {},
+                totalChunks = totalChunks,
                 messageType = messageType,
                 sender = sender,
                 timestamp = time()
             }
         end
         
-        -- Store this part
-        self.multiPartMessages[messageId].parts[partNum] = dataPart
+        -- Store this chunk
+        self.aceCommChunks[messageId].chunks[chunkNum] = chunkData
         
-        -- Check if we have all parts
-        local receivedParts = 0
-        for i = 1, totalParts do
-            if self.multiPartMessages[messageId].parts[i] then
-                receivedParts = receivedParts + 1
+        -- Check if we have all chunks
+        local receivedChunks = 0
+        for i = 1, totalChunks do
+            if self.aceCommChunks[messageId].chunks[i] then
+                receivedChunks = receivedChunks + 1
             end
         end
         
-        if receivedParts == totalParts then
+        if receivedChunks == totalChunks then
             -- Reassemble the message
             local reassembledData = ""
-            for i = 1, totalParts do
-                reassembledData = reassembledData .. self.multiPartMessages[messageId].parts[i]
+            for i = 1, totalChunks do
+                reassembledData = reassembledData .. self.aceCommChunks[messageId].chunks[i]
             end
             
             if self.db.profile.debug.enabled then
-                self:Print(string.format("DEBUG: Reassembled complete message %s from %s, length: %d", messageId, sender, string.len(reassembledData)))
+                self:Print(string.format("DEBUG: Reassembled complete AceComm message %s (%d chars)", messageId, string.len(reassembledData)))
             end
             
-            -- Process the reassembled message as a regular message
-            local reassembledMessage = string.format("GRPR#%s#%s", messageType, reassembledData)
+            -- Process the reassembled message
+            local success, data = self:Deserialize(reassembledData)
+            if success then
+                self:ProcessReceivedMessage(messageType, data, sender)
+            else
+                if self.db.profile.debug.enabled then
+                    self:Print("DEBUG: Failed to deserialize reassembled AceComm message")
+                end
+            end
             
-            -- Clean up storage
-            self.multiPartMessages[messageId] = nil
-            
-            -- Recursively call this function with the reassembled message
-            self:OnChannelMessage(event, reassembledMessage, sender, language, channelString, target, flags, unknown, channelNumber, channelName, instanceID)
+            -- Clean up
+            self.aceCommChunks[messageId] = nil
         else
             if self.db.profile.debug.enabled then
-                self:Print(string.format("DEBUG: Waiting for more parts, have %d/%d", receivedParts, totalParts))
+                self:Print(string.format("DEBUG: Waiting for more AceComm chunks, have %d/%d", receivedChunks, totalChunks))
             end
         end
-        
-        return -- Multi-part message handled
+    else
+        if self.db.profile.debug.enabled then
+            self:Print(string.format("DEBUG: Invalid AceComm-style message format (%d parts)", #parts))
+        end
+    end
+end
+
+-- Handle legacy GRPR# messages
+function Grouper:HandleLegacyMessage(message, sender)
+    if self.db.profile.debug.enabled then
+        self:Print(string.format("DEBUG: Processing legacy message from %s", sender))
     end
     
-    -- Parse our protocol: GRPR#messageType#serializedData
+    -- Parse legacy protocol: GRPR#messageType#serializedData
     local _, messageType, serializedData = strsplit("#", message, 3)
     if not messageType or not serializedData then
         if self.db.profile.debug.enabled then
-            self:Print("DEBUG: Invalid protocol message format")
+            self:Print("DEBUG: Invalid legacy protocol message format")
         end
         return
-    end
-    
-    if self.db.profile.debug.enabled then
-        self:Print(string.format("DEBUG: Parsed message type: %s from %s", messageType, sender))
     end
     
     local success, data = self:Deserialize(serializedData)
     if not success then
         if self.db.profile.debug.enabled then
-            self:Print("DEBUG: Failed to deserialize message data")
+            self:Print("DEBUG: Failed to deserialize legacy message data")
+        end
+        return
+    end
+    
+    -- Forward to the common processor
+    self:ProcessReceivedMessage(messageType, data, sender)
+end
+
+-- Handle legacy multi-part GRPR_MP# messages
+function Grouper:HandleLegacyMultiPartMessage(message, sender)
+    if self.db.profile.debug.enabled then
+        self:Print(string.format("DEBUG: Processing legacy multi-part message from %s", sender))
+    end
+    
+    -- Parse legacy multi-part: GRPR_MP#messageId#chunkNum#totalChunks#messageType#chunk
+    local _, messageId, chunkNumStr, totalChunksStr, messageType, chunk = strsplit("#", message, 6)
+    if not messageId or not chunkNumStr or not totalChunksStr or not messageType or not chunk then
+        if self.db.profile.debug.enabled then
+            self:Print("DEBUG: Invalid legacy multi-part message format")
+        end
+        return
+    end
+    
+    local chunkNum = tonumber(chunkNumStr)
+    local totalChunks = tonumber(totalChunksStr)
+    
+    if self.db.profile.debug.enabled then
+        self:Print(string.format("DEBUG: Received legacy chunk %d/%d of message %s", chunkNum, totalChunks, messageId))
+    end
+    
+    -- Initialize chunk storage if needed
+    if not self.legacyChunks then
+        self.legacyChunks = {}
+    end
+    
+    if not self.legacyChunks[messageId] then
+        self.legacyChunks[messageId] = {
+            chunks = {},
+            totalChunks = totalChunks,
+            messageType = messageType,
+            sender = sender,
+            timestamp = time()
+        }
+    end
+    
+    -- Store this chunk
+    self.legacyChunks[messageId].chunks[chunkNum] = chunk
+    
+    -- Check if we have all chunks
+    local receivedChunks = 0
+    for i = 1, totalChunks do
+        if self.legacyChunks[messageId].chunks[i] then
+            receivedChunks = receivedChunks + 1
+        end
+    end
+    
+    if receivedChunks == totalChunks then
+        -- Reassemble the message
+        local reassembledData = ""
+        for i = 1, totalChunks do
+            reassembledData = reassembledData .. self.legacyChunks[messageId].chunks[i]
+        end
+        
+        if self.db.profile.debug.enabled then
+            self:Print(string.format("DEBUG: Reassembled complete legacy message %s (%d chars)", messageId, string.len(reassembledData)))
+        end
+        
+        -- Process the reassembled message
+        local success, data = self:Deserialize(reassembledData)
+        if success then
+            self:ProcessReceivedMessage(messageType, data, sender)
+        else
+            if self.db.profile.debug.enabled then
+                self:Print("DEBUG: Failed to deserialize reassembled legacy message")
+            end
+        end
+        
+        -- Clean up
+        self.legacyChunks[messageId] = nil
+    else
+        if self.db.profile.debug.enabled then
+            self:Print(string.format("DEBUG: Waiting for more legacy chunks, have %d/%d", receivedChunks, totalChunks))
+        end
+        
+        -- Schedule a timeout check for missing chunks (shorter timeout for faster detection)
+        self:ScheduleTimer(function()
+            self:CheckForMissingChunks(messageId)
+        end, 5) -- Check after 5 seconds instead of 10
+        
+        -- Schedule a more aggressive check
+        self:ScheduleTimer(function()
+            self:CheckForMissingChunks(messageId)
+        end, 15) -- Second check after 15 seconds
+    end
+end
+
+function Grouper:HandleCompactGroupUpdate(message, sender)
+    if self.db.profile.debug.enabled then
+        self:Print(string.format("DEBUG: Processing type+dungeon+role-encoded GROUP_UPDATE from %s", sender))
+    end
+    
+    -- Parse type+dungeon+role-encoded format: GRPR_GROUP#id#title(20)#typeId#dungeonId#currentSize#maxSize#location(20)#timestamp#leader#roleId
+    local parts = {strsplit("#", message)}
+    if #parts < 10 then
+        if self.db.profile.debug.enabled then
+            self:Print(string.format("DEBUG: Invalid encoded GROUP_UPDATE format (got %d parts, expected 10-11)", #parts))
+        end
+        return
+    end
+    
+    local typeId = tonumber(parts[4]) or 1
+    local dungeonId = tonumber(parts[5]) or 0
+    local roleId = tonumber(parts[11]) or 3 -- Default to DPS if roleId not present (backward compatibility)
+    
+    -- Decode type information
+    local typeNames = {
+        [1] = "dungeon",
+        [2] = "raid", 
+        [3] = "quest",
+        [4] = "pvp",
+        [5] = "other"
+    }
+    local groupType = typeNames[typeId] or "other"
+    
+    -- Decode role information
+    local roleNames = {
+        [1] = "tank",
+        [2] = "healer",
+        [3] = "dps"
+    }
+    local leaderRole = roleNames[roleId] or "dps"
+    
+    local dungeonName = ""
+    local minLevel = 1
+    local maxLevel = 60
+    
+    -- Decode dungeon information if specified
+    if dungeonId > 0 and dungeonId <= #DUNGEONS then
+        local dungeon = DUNGEONS[dungeonId]
+        dungeonName = dungeon.name
+        minLevel = dungeon.minLevel
+        maxLevel = dungeon.maxLevel
+        -- Use dungeon's actual type if specified, otherwise use the selected type
+        if dungeonId > 0 then
+            groupType = dungeon.type
+        end
+    else
+        -- No specific dungeon, use default level ranges based on type
+        if typeId == 1 then -- dungeon
+            minLevel = 15
+            maxLevel = 25
+        elseif typeId == 2 then -- raid
+            minLevel = 60
+            maxLevel = 60
+        end
+    end
+    
+    local groupData = {
+        id = parts[2],
+        title = parts[3],
+        description = dungeonName, -- Use dungeon name as description
+        minLevel = minLevel,
+        maxLevel = maxLevel,
+        type = groupType,
+        currentSize = tonumber(parts[6]) or 1,
+        maxSize = tonumber(parts[7]) or 5,
+        location = parts[8],
+        timestamp = tonumber(parts[9]) or time(),
+        leader = parts[10],
+        leaderRole = leaderRole,
+        typeId = typeId,
+        dungeonId = dungeonId,
+        roleId = roleId,
+        members = {
+            [parts[10]] = {
+                name = parts[10],
+                role = leaderRole
+            }
+        }
+    }
+    
+    if self.db.profile.debug.enabled then
+        self:Print(string.format("DEBUG: Parsed compact group: %s (%s) by %s", 
+            groupData.title, groupData.id, groupData.leader))
+    end
+    
+    -- Process as a GROUP_UPDATE with the expected nested structure
+    local messageData = {
+        type = "GROUP_UPDATE",
+        data = groupData,
+        sender = sender,
+        timestamp = time(),
+        version = "1.0.0"
+    }
+    
+    self:ProcessReceivedMessage("GROUP_UPDATE", messageData, sender)
+end
+
+function Grouper:CheckForMissingChunks(messageId)
+    if not self.legacyChunks or not self.legacyChunks[messageId] then
+        if self.db.profile.debug.enabled then
+            self:Print(string.format("DEBUG: No chunks to check for message %s (already completed or expired)", messageId))
+        end
+        return -- Message already completed or cleaned up
+    end
+    
+    local messageData = self.legacyChunks[messageId]
+    local missingChunks = {}
+    local receivedChunks = {}
+    
+    -- Find missing chunks and track received ones
+    for i = 1, messageData.totalChunks do
+        if not messageData.chunks[i] then
+            table.insert(missingChunks, i)
+        else
+            table.insert(receivedChunks, i)
+        end
+    end
+    
+    if self.db.profile.debug.enabled then
+        self:Print(string.format("DEBUG: Chunk status for message %s: received %s, missing %s", 
+            messageId, 
+            #receivedChunks > 0 and table.concat(receivedChunks, ",") or "none",
+            #missingChunks > 0 and table.concat(missingChunks, ",") or "none"))
+    end
+    
+    if #missingChunks > 0 then
+        if self.db.profile.debug.enabled then
+            self:Print(string.format("DEBUG: Requesting missing chunks %s for message %s from %s", 
+                table.concat(missingChunks, ","), messageId, messageData.sender))
+        end
+        
+        -- Send chunk request via AceComm
+        local requestMessage = string.format("GRPR_REQ#%s#%s", messageId, table.concat(missingChunks, ","))
+        
+        local channelIndex = self:GetGrouperChannelIndex()
+        if channelIndex > 0 then
+            self:SendCommMessage("GRPR_CHUNK_REQ", requestMessage, "CHANNEL", channelIndex, "BULK")
+        else
+            if self.db.profile.debug.enabled then
+                self:Print("DEBUG: ✗ Cannot send chunk request - not in Grouper channel")
+            end
+        end
+    end
+end
+
+function Grouper:HandleChunkRequest(message, sender)
+    if self.db.profile.debug.enabled then
+        self:Print(string.format("DEBUG: Handling chunk request from %s", sender))
+    end
+    
+    -- Parse request: GRPR_REQ#messageId#chunkNumbers
+    local _, messageId, chunkNumbersStr = strsplit("#", message, 3)
+    if not messageId or not chunkNumbersStr then
+        if self.db.profile.debug.enabled then
+            self:Print("DEBUG: Invalid chunk request format")
+        end
+        return
+    end
+    
+    -- Check if we have stored chunks for this message
+    if not self.sentChunks or not self.sentChunks[messageId] then
+        if self.db.profile.debug.enabled then
+            self:Print(string.format("DEBUG: No stored chunks found for message %s", messageId))
+        end
+        return
+    end
+    
+    local chunkNumbers = {}
+    for chunkNumStr in string.gmatch(chunkNumbersStr, "[^,]+") do
+        local chunkNum = tonumber(chunkNumStr)
+        if chunkNum then
+            table.insert(chunkNumbers, chunkNum)
+        end
+    end
+    
+    if self.db.profile.debug.enabled then
+        self:Print(string.format("DEBUG: Resending chunks %s for message %s", 
+            table.concat(chunkNumbers, ","), messageId))
+    end
+    
+    -- Resend requested chunks via AceComm
+    for _, chunkNum in ipairs(chunkNumbers) do
+        local chunkData = self.sentChunks[messageId].chunks[chunkNum]
+        if chunkData then
+            local resendChunk = function()
+                local channelIndex = self:GetGrouperChannelIndex()
+                if channelIndex > 0 then
+                    self:SendCommMessage("GRPR_CHUNK_RES", chunkData, "CHANNEL", channelIndex, "BULK")
+                    if self.db.profile.debug.enabled then
+                        self:Print(string.format("DEBUG: Resent chunk %d for message %s", chunkNum, messageId))
+                    end
+                else
+                    if self.db.profile.debug.enabled then
+                        self:Print(string.format("DEBUG: ✗ Cannot resend chunk %d - not in Grouper channel", chunkNum))
+                    end
+                end
+            end
+            
+            -- Delay resends to avoid throttling
+            self:ScheduleTimer(resendChunk, (chunkNum - 1) * 0.3)
+        end
+    end
+end
+
+-- AceComm message handler
+function Grouper:OnCommReceived(prefix, message, distribution, sender)
+    if self.db.profile.debug.enabled then
+        self:Print(string.format("DEBUG: OnCommReceived called - prefix: %s, sender: %s, distribution: %s", prefix, sender, distribution))
+    end
+    
+    -- Add specific debug for GRPR_GRP_UPD
+    if prefix == "GRPR_GRP_UPD" then
+        if self.db.profile.debug.enabled then
+            self:Print(string.format("DEBUG: 🎯 GRPR_GRP_UPD message received from %s!", sender))
+        end
+    end
+    
+    -- Ignore messages from ourselves to prevent self-processing
+    local playerName = UnitName("player")
+    local playerServer = GetRealmName()
+    -- Normalize realm name by removing spaces (WoW chat shows "OldBlanchy" but GetRealmName() returns "Old Blanchy")
+    if playerServer then
+        playerServer = playerServer:gsub("%s+", "")
+    end
+    local fullPlayerName = playerName .. "-" .. playerServer
+    
+    if self.db.profile.debug.enabled then
+        self:Print(string.format("DEBUG: AceComm Self-check - playerName: '%s', playerServer: '%s', fullPlayerName: '%s', sender: '%s'", 
+            playerName or "nil", playerServer or "nil", fullPlayerName or "nil", sender or "nil"))
+    end
+    
+    if sender == playerName or sender == fullPlayerName then
+        if self.db.profile.debug.enabled then
+            self:Print(string.format("DEBUG: Ignoring AceComm message from self (%s)", sender))
         end
         return
     end
     
     if self.db.profile.debug.enabled then
-        self:Print(string.format("DEBUG: Deserialized message from %s", sender))
+        self:Print(string.format("DEBUG: AceComm received %s from %s via %s", prefix, sender, distribution))
     end
     
+    -- Map short prefixes to full message types
+    local messageType
+    if prefix == "GRPR_GRP_UPD" then
+        messageType = "GROUP_UPDATE"
+        if self.db.profile.debug.enabled then
+            self:Print(string.format("DEBUG: ✓ RECEIVED GRPR_GRP_UPD from %s, deserializing", sender))
+        end
+        -- Handle normal serialized format like TEST messages
+        local success, deserializedMessage = pcall(self.Deserialize, self, message)
+        if success and deserializedMessage then
+            self:ProcessReceivedMessage(deserializedMessage.type, deserializedMessage.data, sender)
+        else
+            if self.db.profile.debug.enabled then
+                self:Print(string.format("DEBUG: ✗ Failed to deserialize GRPR_GRP_UPD from %s", sender))
+            end
+        end
+        return
+    elseif prefix == "GRPR_GROUP" then
+        messageType = "GROUP_UPDATE"
+        if self.db.profile.debug.enabled then
+            self:Print(string.format("DEBUG: ✓ RECEIVED GRPR_GROUP from %s, calling HandleCompactGroupUpdate", sender))
+        end
+        -- Handle compact format directly from AceComm (message already includes GRPR_GROUP# prefix)
+        self:HandleCompactGroupUpdate(message, sender)
+        return
+    elseif prefix == "GRPR_GRP_UPD" then
+        messageType = "GROUP_UPDATE"
+    elseif prefix == "GROUP_UPDATE" then
+        messageType = "GROUP_UPDATE"
+        -- Handle compact format directly (no serialization needed)
+        local parts = {}
+        for part in string.gmatch(message, "([^|]*)") do
+            table.insert(parts, part)
+        end
+        
+        if #parts >= 13 then
+            local groupData = {
+                id = parts[1],
+                title = parts[2],
+                type = parts[3],
+                playerName = parts[4],
+                leader = parts[4], -- Map playerName to leader for HandleGroupUpdate compatibility
+                className = parts[5],
+                level = tonumber(parts[6]) or 1,
+                minLevel = tonumber(parts[7]) or 1,
+                maxLevel = tonumber(parts[8]) or 60,
+                description = parts[9],
+                quest = parts[10],
+                zone = parts[11],
+                timestamp = tonumber(parts[12]) or time(),
+                playerCount = tonumber(parts[13]) or 1
+            }
+            
+            if self.db.profile.debug.enabled then
+                self:Print(string.format("DEBUG: Received compact GROUP_UPDATE for %s (%s) from %s", 
+                    groupData.id, groupData.title, sender))
+            end
+            
+            self:HandleGroupUpdate(groupData, sender)
+            return
+        else
+            if self.db.profile.debug.enabled then
+                self:Print(string.format("DEBUG: Invalid compact GROUP_UPDATE format from %s (got %d parts, expected 13)", sender, #parts))
+            end
+            return
+        end
+    elseif prefix == "GRPR_REQ_DATA" then
+        messageType = "REQUEST_DATA"
+    elseif prefix == "GRPR_PRESENCE" then
+        messageType = "PRESENCE"
+    elseif prefix == "GRPR_TEST" then
+        messageType = "TEST"
+    elseif prefix == "GROUPER_TEST" then
+        messageType = "TEST"
+    elseif prefix == "GRPR_CHUNK_REQ" then
+        -- Handle chunk request directly
+        self:HandleChunkRequest(message, sender)
+        return
+    elseif prefix == "GRPR_CHUNK_RES" then
+        -- Handle chunk resend - treat as normal channel message for legacy compatibility
+        self:HandleGrouperMessage(message, sender)
+        return
+    else
+        if self.db.profile.debug.enabled then
+            self:Print(string.format("DEBUG: Unknown AceComm prefix: %s", prefix))
+        end
+        return
+    end
+    
+    -- Deserialize the message (AceComm handles chunking automatically)
+    local success, data = self:Deserialize(message)
+    if not success then
+        if self.db.profile.debug.enabled then
+            self:Print(string.format("DEBUG: Failed to deserialize AceComm message from %s", sender))
+        end
+        return
+    end
+    
+    if self.db.profile.debug.enabled then
+        self:Print(string.format("DEBUG: Processing AceComm message from %s (type: %s)", sender, messageType))
+    end
+    
+    -- Process the message using the same logic as before
+    self:ProcessReceivedMessage(messageType, data, sender)
+end
+
+-- Common message processing function
+function Grouper:ProcessReceivedMessage(messageType, data, sender)
     -- Allow TEST messages from ourselves for debugging, but ignore other messages from ourselves
-    if sender == UnitName("player") and data.type ~= "TEST" then
-        return -- Ignore our own non-test messages
+    if sender == UnitName("player") and messageType ~= "TEST" then
+        if self.db.profile.debug.enabled then
+            self:Print(string.format("DEBUG: Ignoring own message: %s (type: %s)", sender, messageType))
+        end
+        return
     end
     
-    -- Update player list
-    self.players[sender] = {
-        name = sender,
-        lastSeen = time(),
-        version = data.version or "unknown"
-    }
+    -- Update player list (for presence tracking)
+    if not self.players[sender] then
+        self.players[sender] = {
+            name = sender,
+            lastSeen = time(),
+            version = data.version or "unknown"
+        }
+        
+        if self.db.profile.debug.enabled then
+            local playerCount = 0
+            for _ in pairs(self.players) do
+                playerCount = playerCount + 1
+            end
+            self:Print(string.format("DEBUG: Added player %s to tracking (total players: %d)", sender, playerCount))
+        end
+    else
+        self.players[sender].lastSeen = time()
+        if data.version then
+            self.players[sender].version = data.version
+        end
+    end
     
-    -- Handle different message types based on the protocol messageType, not data.type
+    -- Handle different message types
     if messageType == "GROUP_UPDATE" then
         if self.db.profile.debug.enabled then
             self:Print(string.format("DEBUG: Processing GROUP_UPDATE from %s", sender))
+            if data and data.data then
+                self:Print(string.format("DEBUG: Group data exists - ID: %s, Title: %s, Leader: %s", 
+                    data.data.id or "nil",
+                    data.data.title or "nil", 
+                    data.data.leader or "nil"))
+            else
+                self:Print("DEBUG: data.data is nil or missing")
+            end
         end
-        self:HandleGroupUpdate(data.data, sender)
-    elseif messageType == "GROUP_REMOVE" then
-        self:HandleGroupRemove(data.data, sender)
+        
+        -- Safety check before calling HandleGroupUpdate
+        if data and data.data then
+            self:HandleGroupUpdate(data.data, sender)
+        else
+            if self.db.profile.debug.enabled then
+                self:Print("DEBUG: ERROR - Cannot call HandleGroupUpdate, data.data is nil")
+            end
+        end
     elseif messageType == "REQUEST_DATA" then
+        if self.db.profile.debug.enabled then
+            self:Print(string.format("DEBUG: Processing REQUEST_DATA from %s", sender))
+        end
         self:HandleDataRequest(sender)
     elseif messageType == "PRESENCE" then
         self:HandlePresence(data.data, sender)
     elseif messageType == "TEST" then
         if self.db.profile.debug.enabled then
-            self:Print(string.format("DEBUG: Received test message: %s", data.data and data.data.message or "no message"))
+            if sender ~= UnitName("player") then
+                self:Print(string.format("DEBUG: ✓ RECEIVED TEST MESSAGE from %s: %s", sender, data.data and data.data.message or "no message"))
+            else
+                self:Print(string.format("DEBUG: Received test message: %s", data.data and data.data.message or "no message"))
+            end
         end
     else
         if self.db.profile.debug.enabled then
@@ -608,18 +1568,35 @@ function Grouper:OnChannelMessage(event, message, sender, language, channelStrin
     
     -- Refresh UI if it's open
     if self.mainFrame and self.mainFrame:IsShown() then
+        if self.db.profile.debug.enabled then
+            self:Print(string.format("DEBUG: Refreshing UI after processing AceComm message (total groups: %d)", self:CountGroups()))
+        end
         self:RefreshGroupList()
     end
 end
 
 -- Group management functions
 function Grouper:CreateGroup(groupData)
+    -- Encode type as number if not already encoded: 1=Dungeon, 2=Raid, 3=Quest, 4=PvP, 5=Other
+    local typeId = groupData.typeId
+    if not typeId then
+        local groupType = groupData.type or "dungeon"
+        if groupType == "dungeon" then typeId = 1
+        elseif groupType == "raid" then typeId = 2
+        elseif groupType == "quest" then typeId = 3
+        elseif groupType == "pvp" then typeId = 4
+        elseif groupType == "other" then typeId = 5
+        else typeId = 1 -- Default to dungeon
+        end
+    end
+    
     local group = {
         id = self:GenerateGroupID(),
         leader = UnitName("player"),
         title = groupData.title or "Untitled Group",
         description = groupData.description or "",
         type = groupData.type or "other",
+        typeId = typeId,
         minLevel = groupData.minLevel or 1,
         maxLevel = groupData.maxLevel or 60,
         currentSize = groupData.currentSize or 1,
@@ -685,10 +1662,29 @@ function Grouper:StripRealmName(playerName)
     return name
 end
 
+-- Helper function to get table keys for debugging
+function Grouper:GetTableKeys(tbl)
+    local keys = {}
+    if type(tbl) == "table" then
+        for key, _ in pairs(tbl) do
+            table.insert(keys, tostring(key))
+        end
+    end
+    return keys
+end
+
 function Grouper:HandleGroupUpdate(groupData, sender)
     if self.db.profile.debug.enabled then
-        self:Print(string.format("DEBUG: HandleGroupUpdate called - sender: %s, leader: %s", sender, groupData.leader or "nil"))
-        self:Print(string.format("DEBUG: Group ID: %s, Title: %s", groupData.id or "nil", groupData.title or "nil"))
+        self:Print(string.format("DEBUG: HandleGroupUpdate called - sender: %s, leader: %s", sender, groupData and groupData.leader or "nil"))
+        self:Print(string.format("DEBUG: Group ID: %s, Title: %s", groupData and groupData.id or "nil", groupData and groupData.title or "nil"))
+    end
+    
+    -- Add safety check for nil groupData
+    if not groupData then
+        if self.db.profile.debug.enabled then
+            self:Print("DEBUG: ERROR - groupData is nil in HandleGroupUpdate")
+        end
+        return
     end
     
     -- Strip realm names for comparison
@@ -704,14 +1700,24 @@ function Grouper:HandleGroupUpdate(groupData, sender)
         
         if self.db.profile.debug.enabled then
             self:Print(string.format("DEBUG: Added group to list. Total groups: %d", self:CountGroups()))
+            self:Print(string.format("DEBUG: 💾 Stored group %s in self.groups[%s]", groupData.title, groupData.id))
+            -- Verify it was actually stored
+            if self.groups[groupData.id] then
+                self:Print(string.format("DEBUG: ✅ Verification: group %s exists in memory", groupData.id))
+            else
+                self:Print(string.format("DEBUG: ❌ ERROR: group %s NOT found in memory after storage!", groupData.id))
+            end
         end
         
         if self.db.profile.notifications.newGroups then
             self:Print(string.format("New group available: %s", groupData.title))
         end
         
-        -- Refresh UI if it's open
+        -- Refresh UI if it's open (this happens after adding a group)
         if self.mainFrame and self.mainFrame:IsShown() then
+            if self.db.profile.debug.enabled then
+                self:Print(string.format("DEBUG: Refreshing UI after adding group %s (total groups: %d)", groupData.id, self:CountGroups()))
+            end
             self:RefreshGroupList()
         end
     else
@@ -729,6 +1735,14 @@ function Grouper:CountGroups()
     return count
 end
 
+function Grouper:CountTableFields(tbl)
+    local count = 0
+    for _ in pairs(tbl) do
+        count = count + 1
+    end
+    return count
+end
+
 function Grouper:HandleGroupRemove(data, sender)
     local group = self.groups[data.id]
     if group and group.leader == sender then
@@ -737,36 +1751,294 @@ function Grouper:HandleGroupRemove(data, sender)
 end
 
 function Grouper:HandleDataRequest(sender)
-    -- Send our groups to the requesting player
-    for _, group in pairs(self.groups) do
-        if group.leader == UnitName("player") then
-            self:SendComm("GROUP_UPDATE", group, "WHISPER", sender)
+    if self.db.profile.debug.enabled then
+        self:Print(string.format("DEBUG: HandleDataRequest from %s - queuing for delayed response", sender))
+    end
+    
+    -- Queue the response and schedule a delayed flush to avoid protected context
+    self:QueueDataRequestResponse(sender)
+    self:ScheduleDelayedFlush()
+end
+
+function Grouper:ScheduleDelayedFlush()
+    -- Cancel any existing flush timer
+    if self.flushTimer then
+        self:CancelTimer(self.flushTimer)
+    end
+    
+    -- Schedule a delayed flush to ensure we're out of protected context
+    -- Use a 0.1 second delay for automated responses (AceComm best practice)
+    self.flushTimer = self:ScheduleTimer(function()
+        if self.db.profile.debug.enabled then
+            self:Print("DEBUG: Executing delayed response flush")
+        end
+        
+        self:FlushResponseQueue()
+        self.flushTimer = nil
+    end, 0.1)
+end
+
+function Grouper:QueueDataRequestResponse(sender)
+    -- Initialize response queue if it doesn't exist
+    if not self.responseQueue then
+        self.responseQueue = {}
+    end
+    
+    local playerName = UnitName("player")
+    
+    -- Queue each group this player created for sending
+    for groupId, group in pairs(self.groups) do
+        if group.leader == playerName then
+            local groupAge = time() - group.timestamp
+            if groupAge < 3600 then -- Only queue groups less than 1 hour old
+                if self.db.profile.debug.enabled then
+                    self:Print(string.format("DEBUG: Queuing group %s (%s) for response to %s", groupId, group.title, sender))
+                end
+                -- Queue the group for sending
+                table.insert(self.responseQueue, {
+                    type = "GROUP_UPDATE",
+                    data = group,
+                    requestedBy = sender
+                })
+            else
+                if self.db.profile.debug.enabled then
+                    self:Print(string.format("DEBUG: Skipping expired group %s (age: %d min)", groupId, math.floor(groupAge/60)))
+                end
+            end
         end
     end
 end
 
+function Grouper:FlushResponseQueue()
+    if not self.responseQueue or #self.responseQueue == 0 then
+        return 0
+    end
+    
+    local sent = 0
+    while #self.responseQueue > 0 do
+        local response = table.remove(self.responseQueue, 1)
+        if response then
+            if self.db.profile.debug.enabled then
+                self:Print(string.format("DEBUG: Flushing queued response: %s for %s", response.type, response.requestedBy))
+            end
+            
+            -- Send directly without timers - same as Greenwall approach
+            self:SendComm(response.type, response.data)
+            sent = sent + 1
+        end
+    end
+    
+    if self.db.profile.debug.enabled then
+        self:Print(string.format("DEBUG: Flushed %d queued responses", sent))
+    end
+    
+    return sent
+end
+
+function Grouper:SendDataRequestResponse(sender)
+    -- Keep this function for compatibility but make it call the new queue-based system
+    self:QueueDataRequestResponse(sender)
+    return self:FlushResponseQueue()
+end
+
 function Grouper:HandlePresence(data, sender)
-    -- Update player presence information
+    -- Update player presence information - make sure player exists first
+    if not self.players[sender] then
+        self.players[sender] = {
+            name = sender,
+            lastSeen = time(),
+            version = "unknown"
+        }
+    end
+    
     self.players[sender].status = data.status
     self.players[sender].groupId = data.groupId
+    self.players[sender].lastSeen = time() -- Update last seen time
 end
 
 function Grouper:BroadcastPresence()
-    local status = "available"
-    local groupId = nil
-    
-    if IsInRaid() then
-        status = "in_raid"
-    elseif IsInGroup() then
-        status = "in_party"
+    -- Wrap the entire function in a protected call to catch any protected function errors
+    local success, errorMsg = pcall(function()
+        -- Diagnostic information to help identify protected function issues
+        if self.db and self.db.profile and self.db.profile.debug and self.db.profile.debug.enabled then
+            local diagnostics = {}
+            
+            -- Check various WoW states that can cause protected function issues
+            pcall(function()
+                table.insert(diagnostics, string.format("InCombatLockdown: %s", tostring(InCombatLockdown())))
+                table.insert(diagnostics, string.format("UnitAffectingCombat('player'): %s", tostring(UnitAffectingCombat("player"))))
+                table.insert(diagnostics, string.format("GetTime(): %s", tostring(GetTime())))
+                table.insert(diagnostics, string.format("IsLoggedIn(): %s", tostring(IsLoggedIn())))
+                table.insert(diagnostics, string.format("GetFramerate(): %s", tostring(GetFramerate())))
+                
+                -- Check if we're in a loading screen or transition
+                if LoadingScreenFrame and LoadingScreenFrame:IsShown() then
+                    table.insert(diagnostics, "LoadingScreen: SHOWN")
+                else
+                    table.insert(diagnostics, "LoadingScreen: HIDDEN")
+                end
+                
+                -- Check addon taint status
+                local taintMsg = ""
+                if issecurevariable then
+                    local secure, taintSource = issecurevariable("UnitName")
+                    if not secure then
+                        taintMsg = string.format("UnitName tainted by: %s", taintSource or "unknown")
+                    else
+                        taintMsg = "UnitName secure"
+                    end
+                end
+                table.insert(diagnostics, taintMsg)
+                
+                -- Check channel state
+                local channelIndex = GetChannelName(ADDON_CHANNEL)
+                table.insert(diagnostics, string.format("Channel '%s' index: %d", ADDON_CHANNEL, channelIndex))
+                
+            end)
+            
+            self:Print("DEBUG: BroadcastPresence diagnostics: " .. table.concat(diagnostics, ", "))
+        end
+        
+        -- Allow disabling presence broadcast to avoid protected function issues
+        if self.db and self.db.profile and self.db.profile.disablePresence then
+            return
+        end
+        
+        -- Skip presence broadcasting when handling data requests to prevent conflicts
+        if self.suppressPresence then
+            if self.db.profile.debug.enabled then
+                self:Print("DEBUG: Skipping presence broadcast - data request processing in progress")
+            end
+            return
+        end
+        
+        -- Multiple layers of protection to prevent protected function call errors
+        
+        -- Don't broadcast during combat to avoid protected function issues
+        if InCombatLockdown() then
+            if self.db.profile.debug.enabled then
+                self:Print("DEBUG: Skipping presence broadcast - in combat")
+            end
+            return
+        end
+        
+        -- Don't broadcast if game is still loading
+        if not GetTime() or GetTime() < 5 then
+            return -- Too early in the loading process
+        end
+        
+        -- Don't broadcast if addon is not fully loaded
+        if not self.db or not self.db.profile then
+            return
+        end
+        
+        -- Additional safety checks for protected function calls
+        if not UnitName("player") or UnitName("player") == "" then
+            if self.db.profile.debug.enabled then
+                self:Print("DEBUG: Skipping presence broadcast - player name not available")
+            end
+            return
+        end
+        
+        -- Check if we're in a valid state to send chat messages
+        local channelIndex = GetChannelName(ADDON_CHANNEL)
+    if channelIndex <= 0 then
+        if self.db.profile.debug.enabled then
+            self:Print("DEBUG: Skipping presence broadcast - not in channel")
+        end
+        return
     end
     
-    self:SendComm("PRESENCE", {
-        status = status,
-        groupId = groupId,
-        level = UnitLevel("player"),
-        class = UnitClass("player")
-    })
+    -- Wrap all potentially protected function calls in a protected environment
+    local success, result = pcall(function()
+        local status = "available"
+        local groupId = nil
+        
+        -- These function calls might be protected in some contexts
+        if IsInRaid() then
+            status = "in_raid"
+        elseif IsInGroup() then
+            status = "in_party"
+        end
+        
+        -- Get player info safely
+        local playerLevel = UnitLevel("player") or 1
+        local playerClass = UnitClass("player") or "Unknown"
+        
+        return {
+            status = status,
+            groupId = groupId,
+            level = playerLevel,
+            class = playerClass
+        }
+    end)
+    
+    if not success then
+        if self.db.profile.debug.enabled then
+            self:Print(string.format("DEBUG: Failed to get player data for presence: %s", tostring(result)))
+        end
+        return
+    end
+    
+    -- Use protected call to prevent addon blocking errors
+    local commSuccess, errorMsg = pcall(function()
+        self:SendComm("PRESENCE", result)
+    end)
+    
+    if not commSuccess then
+        if self.db.profile.debug.enabled then
+            self:Print(string.format("DEBUG: Failed to broadcast presence: %s", tostring(errorMsg)))
+        end
+    end
+    end) -- Close the outer pcall function
+    
+    -- Handle any protected function errors from the entire BroadcastPresence function
+    if not success then
+        if self.db and self.db.profile and self.db.profile.debug and self.db.profile.debug.enabled then
+            -- Try to extract more information about the error
+            local errorInfo = {}
+            table.insert(errorInfo, string.format("Error: %s", tostring(errorMsg)))
+            
+            -- Check if it's a specific type of protected function error
+            if errorMsg and type(errorMsg) == "string" then
+                if errorMsg:find("ADDON_ACTION_BLOCKED") then
+                    table.insert(errorInfo, "Type: ADDON_ACTION_BLOCKED")
+                elseif errorMsg:find("Interface action failed") then
+                    table.insert(errorInfo, "Type: Interface action failed")
+                elseif errorMsg:find("script ran too long") then
+                    table.insert(errorInfo, "Type: Script timeout")
+                end
+                
+                -- Try to identify which function call caused the issue
+                if errorMsg:find("SendChatMessage") then
+                    table.insert(errorInfo, "Suspect: SendChatMessage")
+                elseif errorMsg:find("UnitName") then
+                    table.insert(errorInfo, "Suspect: UnitName")
+                elseif errorMsg:find("UnitClass") then
+                    table.insert(errorInfo, "Suspect: UnitClass")
+                elseif errorMsg:find("UnitLevel") then
+                    table.insert(errorInfo, "Suspect: UnitLevel")
+                elseif errorMsg:find("IsInRaid") then
+                    table.insert(errorInfo, "Suspect: IsInRaid")
+                elseif errorMsg:find("IsInGroup") then
+                    table.insert(errorInfo, "Suspect: IsInGroup")
+                elseif errorMsg:find("GetChannelName") then
+                    table.insert(errorInfo, "Suspect: GetChannelName")
+                end
+            end
+            
+            -- Get current stack trace if possible
+            pcall(function()
+                local stack = debugstack(2, 5, 5) -- Get limited stack trace
+                if stack then
+                    table.insert(errorInfo, string.format("Stack: %s", stack:gsub("\n", " | ")))
+                end
+            end)
+            
+            self:Print("DEBUG: BroadcastPresence protected function error details: " .. table.concat(errorInfo, " | "))
+        end
+        -- Don't re-throw the error, just log it and continue
+    end
 end
 
 -- Utility functions
@@ -792,20 +2064,43 @@ function Grouper:CleanupOldGroups()
     end
 end
 
-function Grouper:CleanupOldMultiPartMessages()
-    if not self.multiPartMessages then
-        return
-    end
-    
+function Grouper:CleanupOldAceCommChunks()
     local currentTime = time()
     local expireTime = 300 -- 5 minutes
     
-    for messageId, messageData in pairs(self.multiPartMessages) do
-        if currentTime - messageData.timestamp > expireTime then
-            if self.db.profile.debug.enabled then
-                self:Print(string.format("DEBUG: Cleaning up expired multi-part message %s", messageId))
+    -- Clean up AceComm chunks
+    if self.aceCommChunks then
+        for messageId, messageData in pairs(self.aceCommChunks) do
+            if currentTime - messageData.timestamp > expireTime then
+                if self.db.profile.debug.enabled then
+                    self:Print(string.format("DEBUG: Cleaning up expired AceComm chunks for message %s", messageId))
+                end
+                self.aceCommChunks[messageId] = nil
             end
-            self.multiPartMessages[messageId] = nil
+        end
+    end
+    
+    -- Clean up legacy chunks
+    if self.legacyChunks then
+        for messageId, messageData in pairs(self.legacyChunks) do
+            if currentTime - messageData.timestamp > expireTime then
+                if self.db.profile.debug.enabled then
+                    self:Print(string.format("DEBUG: Cleaning up expired legacy chunks for message %s", messageId))
+                end
+                self.legacyChunks[messageId] = nil
+            end
+        end
+    end
+    
+    -- Clean up sent chunks (for resend capability)
+    if self.sentChunks then
+        for messageId, messageData in pairs(self.sentChunks) do
+            if currentTime - messageData.timestamp > expireTime then
+                if self.db.profile.debug.enabled then
+                    self:Print(string.format("DEBUG: Cleaning up expired sent chunks for message %s", messageId))
+                end
+                self.sentChunks[messageId] = nil
+            end
         end
     end
 end
@@ -814,29 +2109,56 @@ function Grouper:GetFilteredGroups()
     local filtered = {}
     local filters = self.db.profile.filters
     
+    if self.db.profile.debug.enabled then
+        self:Print(string.format("DEBUG: 🔍 Filtering %d total groups", self:CountGroups()))
+        self:Print(string.format("DEBUG: Filter settings - minLevel: %d, maxLevel: %d", filters.minLevel, filters.maxLevel))
+    end
+    
     for _, group in pairs(self.groups) do
         local include = true
+        local reason = ""
+        
+        if self.db.profile.debug.enabled then
+            self:Print(string.format("DEBUG: Checking group '%s' (type: %s, minLevel: %d, maxLevel: %d)", 
+                group.title, group.type, group.minLevel or 0, group.maxLevel or 60))
+        end
         
         -- Level filter
         if group.minLevel > filters.maxLevel or group.maxLevel < filters.minLevel then
             include = false
+            reason = string.format("level mismatch (group: %d-%d, filter: %d-%d)", 
+                group.minLevel or 0, group.maxLevel or 60, filters.minLevel, filters.maxLevel)
         end
         
         -- Type filter
-        if not filters.dungeonTypes[group.type] then
+        if include and not filters.dungeonTypes[group.type] then
             include = false
+            reason = string.format("type '%s' not enabled in filters", group.type)
         end
         
         -- Dungeon filter
-        if self.selectedDungeonFilter and self.selectedDungeonFilter ~= "" then
+        if include and self.selectedDungeonFilter and self.selectedDungeonFilter ~= "" then
             if not group.dungeons or not group.dungeons[self.selectedDungeonFilter] then
                 include = false
+                reason = string.format("dungeon filter '%s' doesn't match", self.selectedDungeonFilter)
+            end
+        end
+        
+        if self.db.profile.debug.enabled then
+            if include then
+                self:Print(string.format("DEBUG: ✅ Including group '%s'", group.title))
+            else
+                self:Print(string.format("DEBUG: ❌ Excluding group '%s' - %s", group.title, reason))
             end
         end
         
         if include then
             table.insert(filtered, group)
         end
+    end
+    
+    if self.db.profile.debug.enabled then
+        self:Print(string.format("DEBUG: 🔍 Filtered result: %d groups passed filters", #filtered))
     end
     
     -- Sort by timestamp (newest first)
@@ -862,12 +2184,24 @@ function Grouper:SlashCommand(input)
         local channelIndex = GetChannelName(ADDON_CHANNEL)
         local actuallyInChannel = channelIndex > 0
         self:Print(string.format("Groups: %d, Players: %d", self:CountGroups(), #self.players))
-        self:Print(string.format("Channel Status: %s (Index: %d)", 
+        self:Print(string.format("My Channel Status: %s (Index: %d)", 
             actuallyInChannel and "Connected" or "Disconnected", channelIndex))
+        self:Print(string.format("Cached Channel: %s", 
+            self.grouperChannelNumber and tostring(self.grouperChannelNumber) or "None"))
+        self:Print(string.format("Channel Name: '%s'", ADDON_CHANNEL))
         self:Print(string.format("Internal Status: %s", 
             self.channelJoined and "Connected" or "Disconnected"))
         self:Print(string.format("Debug Mode: %s", 
             self.db.profile.debug.enabled and "ON" or "OFF"))
+        
+        -- Validate and fix cache
+        if self.grouperChannelNumber and channelIndex ~= self.grouperChannelNumber then
+            self:Print("WARNING: Cached channel number doesn't match current!")
+            self.grouperChannelNumber = channelIndex -- Fix it
+        elseif not self.grouperChannelNumber and channelIndex > 0 then
+            self:Print("Initializing missing channel cache...")
+            self.grouperChannelNumber = channelIndex -- Initialize it
+        end
         
         -- Auto-fix if there's a mismatch
         if actuallyInChannel and not self.channelJoined then
@@ -876,35 +2210,54 @@ function Grouper:SlashCommand(input)
         elseif not actuallyInChannel and self.channelJoined then
             self:Print("Reconnecting to channel...")
             self.channelJoined = false
-            self:JoinGrouperChannel()
+            self:EnsureChannelJoined()
         end
     elseif command == "test" then
-        self:Print("Testing communication...")
+        self:Print("Testing AceComm communication...")
         
-        -- First test with a simple message
-        local channelIndex = GetChannelName(ADDON_CHANNEL)
-        if channelIndex > 0 then
-            -- Test 1: Simple visible message
-            local success1, err1 = pcall(SendChatMessage, "TEST: Simple message", "CHANNEL", nil, channelIndex)
-            self:Print(string.format("Simple test: %s %s", success1 and "SUCCESS" or "FAILED", err1 or ""))
-            
-            -- Test 2: Our protocol with minimal data
-            local testMessage = "GRPR#TEST#hello"
-            local success2, err2 = pcall(SendChatMessage, testMessage, "CHANNEL", nil, channelIndex)
-            self:Print(string.format("Protocol test: %s %s", success2 and "SUCCESS" or "FAILED", err2 or ""))
+        local channelIndex = self:GetGrouperChannelIndex()
+        if channelIndex <= 0 then
+            self:Print("✗ Not in Grouper channel - cannot test AceComm")
+            return
         end
         
-        -- Test 3: Full addon communication
-        self:SendComm("TEST", {message = "Hello from " .. UnitName("player")})
+        self:Print(string.format("Using Grouper channel %d for tests", channelIndex))
         
-        -- Also send a visible chat message to verify channel communication
-        local channelIndex = GetChannelName(ADDON_CHANNEL)
-        if channelIndex > 0 then
-            SendChatMessage("TEST: Grouper addon communication test from " .. UnitName("player"), "CHANNEL", nil, channelIndex)
-            self:Print(string.format("Sent visible test message to channel %d", channelIndex))
-        else
-            self:Print("ERROR: Cannot find Grouper channel for visible test")
-        end
+        -- Test 1: Simple AceComm message
+        local testData1 = {message = "Simple test", sender = UnitName("player"), timestamp = time()}
+        local success1, err1 = pcall(function()
+            self:SendCommMessage("GROUPER_TEST", self:Serialize(testData1), "CHANNEL", channelIndex, "ALERT")
+        end)
+        self:Print(string.format("Simple AceComm test: %s %s", success1 and "SUCCESS" or "FAILED", err1 or ""))
+        
+        -- Test 2: Our SendComm protocol
+        local success2, err2 = pcall(function()
+            self:SendComm("TEST", {message = "Hello from " .. UnitName("player")})
+        end)
+        self:Print(string.format("SendComm protocol test: %s %s", success2 and "SUCCESS" or "FAILED", err2 or ""))
+        
+        -- Test 3: Group update message (skip to avoid creating fake groups)
+        -- local success3, err3 = pcall(function()
+        --     self:SendComm("GROUP_UPDATE", {test = true, sender = UnitName("player")})
+        -- end)
+        -- self:Print(string.format("Group update test: %s %s", success3 and "SUCCESS" or "FAILED", err3 or ""))
+        self:Print("Group update test: SKIPPED (to avoid fake groups)")
+        
+        -- Test 4: Direct GRPR_GRP_UPD test to verify registration
+        local success4, err4 = pcall(function()
+            local testMessage = {type = "GROUP_UPDATE", sender = UnitName("player"), timestamp = time(), version = ADDON_VERSION, data = {test = true}}
+            self:SendCommMessage("GRPR_GRP_UPD", self:Serialize(testMessage), "CHANNEL", channelIndex, "ALERT")
+        end)
+        self:Print(string.format("Direct GRPR_GRP_UPD test: %s %s", success4 and "SUCCESS" or "FAILED", err4 or ""))
+        
+        -- Test 4: Direct channel test (visible)
+        local success4, err4 = pcall(function()
+            SendChatMessage("GRPR_DIRECT_TEST:" .. UnitName("player"), "CHANNEL", nil, channelIndex)
+        end)
+        self:Print(string.format("Direct channel test: %s %s", success4 and "SUCCESS" or "FAILED", err4 or ""))
+        
+        self:Print("First 3 tests use AceComm, Test 4 uses direct channel (visible)")
+        self:Print("If Test 4 works but others don't, AceComm has an issue with CHANNEL distribution")
     elseif command == "debug" then
         if args[2] and args[2]:lower() == "off" then
             self.db.profile.debug.enabled = false
@@ -914,8 +2267,84 @@ function Grouper:SlashCommand(input)
             self:Print("Debug mode enabled")
         end
         self:Print(string.format("Debug is now %s", self.db.profile.debug.enabled and "ON" or "OFF"))
+    elseif command == "presence" then
+        if args[2] and args[2]:lower() == "off" then
+            self.db.profile.disablePresence = true
+            self:Print("Presence broadcasting disabled")
+        else
+            self.db.profile.disablePresence = false
+            self:Print("Presence broadcasting enabled")
+        end
+        self:Print(string.format("Presence broadcasting is now %s", self.db.profile.disablePresence and "OFF" or "ON"))
+    elseif command == "chunks" then
+        -- Debug command to show chunk status
+        self:Print("Chunk status:")
+        
+        if self.legacyChunks then
+            local count = 0
+            for messageId, messageData in pairs(self.legacyChunks) do
+                count = count + 1
+                local receivedChunks = 0
+                for i = 1, messageData.totalChunks do
+                    if messageData.chunks[i] then
+                        receivedChunks = receivedChunks + 1
+                    end
+                end
+                local age = time() - messageData.timestamp
+                self:Print(string.format("  Receiving %s: %d/%d chunks from %s (age: %ds)", 
+                    messageId, receivedChunks, messageData.totalChunks, messageData.sender, age))
+            end
+            if count == 0 then
+                self:Print("  No pending received chunks")
+            end
+        else
+            self:Print("  No pending received chunks")
+        end
+        
+        if self.sentChunks then
+            local count = 0
+            for messageId, messageData in pairs(self.sentChunks) do
+                count = count + 1
+                local age = time() - messageData.timestamp
+                self:Print(string.format("  Sent %s: %d chunks (%s, age: %ds)", 
+                    messageId, #messageData.chunks, messageData.messageType, age))
+            end
+            if count == 0 then
+                self:Print("  No pending sent chunks")
+            end
+        else
+            self:Print("  No pending sent chunks")
+        end
+    elseif command == "request" then
+        self:Print("Requesting group data from other players...")
+        if self.db.profile.debug.enabled then
+            self:Print(string.format("DEBUG: Manual group data request (current groups: %d)", self:CountGroups()))
+        end
+        self:SendComm("REQUEST_DATA", {type = "request", timestamp = time()})
+    elseif command == "list" then
+        self:Print(string.format("Current groups (%d):", self:CountGroups()))
+        for id, group in pairs(self.groups) do
+            local age = math.floor((time() - group.timestamp) / 60)
+            self:Print(string.format("  %s: %s (Leader: %s, Age: %d min)", id, group.title, group.leader, age))
+        end
+        if self:CountGroups() == 0 then
+            self:Print("  No groups currently stored")
+        end
+    elseif command == "players" then
+        local playerCount = 0
+        for _ in pairs(self.players) do
+            playerCount = playerCount + 1
+        end
+        self:Print(string.format("Known players (%d):", playerCount))
+        for name, player in pairs(self.players) do
+            local lastSeen = math.floor((time() - player.lastSeen) / 60)
+            self:Print(string.format("  %s (Version: %s, Last seen: %d min ago)", name, player.version or "unknown", lastSeen))
+        end
+        if playerCount == 0 then
+            self:Print("  No players currently known")
+        end
     else
-        self:Print("Usage: /grouper [show|config|join|status|test|debug]")
+        self:Print("Usage: /grouper [show|config|join|status|test|debug|presence|chunks|request|list|players]")
     end
 end
 
@@ -1076,7 +2505,19 @@ function Grouper:CreateBrowseTab(container)
     refreshButton:SetText("Refresh")
     refreshButton:SetWidth(100)
     refreshButton:SetCallback("OnClick", function()
-        self:RefreshGroupList()
+        -- Request fresh data from other players
+        if self.db.profile.debug.enabled then
+            self:Print("DEBUG: Refresh button clicked - requesting fresh data from other players")
+        end
+        self:SendComm("REQUEST_DATA", {type = "request", timestamp = time()})
+        
+        -- Schedule a delayed refresh in case no responses come back
+        self:ScheduleTimer(function()
+            if self.db.profile.debug.enabled then
+                self:Print("DEBUG: Delayed refresh after REQUEST_DATA timeout")
+            end
+            self:RefreshGroupList()
+        end, 15) -- Wait 15 seconds for responses
     end)
     filterGroup:AddChild(refreshButton)
     
@@ -1100,33 +2541,45 @@ function Grouper:CreateCreateTab(container)
     
     -- Group title
     local titleEdit = AceGUI:Create("EditBox")
-    titleEdit:SetLabel("Group Title")
+    titleEdit:SetLabel("Group Title (max 20 chars)")
     titleEdit:SetFullWidth(true)
+    titleEdit:SetMaxLetters(20)
     titleEdit:SetText("")
     scrollFrame:AddChild(titleEdit)
     
-    -- Description
-    local descEdit = AceGUI:Create("MultiLineEditBox")
-    descEdit:SetLabel("Description")
-    descEdit:SetFullWidth(true)
-    descEdit:SetNumLines(3)
-    descEdit:SetText("")
-    scrollFrame:AddChild(descEdit)
-    
-    -- Group type dropdown
+    -- Event type dropdown (encoded as numbers when sent)
     local typeDropdown = AceGUI:Create("Dropdown")
-    typeDropdown:SetLabel("Group Type")
+    typeDropdown:SetLabel("Event Type")
     typeDropdown:SetList({
         dungeon = "Dungeon",
-        raid = "Raid", 
+        raid = "Raid",
         quest = "Quest",
+        pvp = "PvP",
         other = "Other"
     })
-    typeDropdown:SetValue("dungeon")
+    typeDropdown:SetValue("dungeon") -- Default to dungeon
     typeDropdown:SetFullWidth(true)
     scrollFrame:AddChild(typeDropdown)
     
-    -- Dungeon selection (multi-select)
+    -- Level range (move before dungeon selection so it's in scope)
+    local levelGroup = AceGUI:Create("SimpleGroup")
+    levelGroup:SetLayout("Flow")
+    levelGroup:SetFullWidth(true)
+    scrollFrame:AddChild(levelGroup)
+    
+    local minLevelEdit = AceGUI:Create("EditBox")
+    minLevelEdit:SetLabel("Min Level")
+    minLevelEdit:SetText("15") -- Default for dungeons
+    minLevelEdit:SetWidth(100)
+    levelGroup:AddChild(minLevelEdit)
+    
+    local maxLevelEdit = AceGUI:Create("EditBox")
+    maxLevelEdit:SetLabel("Max Level")
+    maxLevelEdit:SetText("25") -- Default for dungeons  
+    maxLevelEdit:SetWidth(100)
+    levelGroup:AddChild(maxLevelEdit)
+    
+    -- Dungeon selection (multi-select) - filtered by type dropdown
     local dungeonGroup = AceGUI:Create("InlineGroup")
     dungeonGroup:SetTitle("Select Dungeons/Raids")
     dungeonGroup:SetFullWidth(true)
@@ -1143,49 +2596,63 @@ function Grouper:CreateCreateTab(container)
         selectedDungeons = {}
         dungeonCheckboxes = {}
         
+        -- Only show dungeon list if dungeon or raid is selected
+        if selectedType ~= "dungeon" and selectedType ~= "raid" then
+            return
+        end
+        
         for i, dungeon in ipairs(DUNGEONS) do
+            -- Show dungeons/raids that match the selected type, or show all if "other"
             if selectedType == "other" or dungeon.type == selectedType then
                 local checkbox = AceGUI:Create("CheckBox")
-                checkbox:SetLabel(string.format("%s (%d-%d)", dungeon.name, dungeon.minLevel, dungeon.maxLevel))
-                checkbox:SetWidth(300)
-                checkbox:SetCallback("OnValueChanged", function(widget, event, value)
-                    if value then
-                        selectedDungeons[dungeon.name] = dungeon
-                    else
-                        selectedDungeons[dungeon.name] = nil
+            checkbox:SetLabel(string.format("%s (%d-%d)", dungeon.name, dungeon.minLevel, dungeon.maxLevel))
+            checkbox:SetWidth(300)
+            checkbox:SetCallback("OnValueChanged", function(widget, event, value)
+                if value then
+                    selectedDungeons[dungeon.name] = dungeon
+                    -- Auto-update level range to this dungeon's range
+                    minLevelEdit:SetText(tostring(dungeon.minLevel))
+                    maxLevelEdit:SetText(tostring(dungeon.maxLevel))
+                else
+                    selectedDungeons[dungeon.name] = nil
+                    -- If no dungeons selected, reset to default dungeon range
+                    local anySelected = false
+                    for name, selected in pairs(selectedDungeons) do
+                        if selected then
+                            anySelected = true
+                            break
+                        end
                     end
-                end)
-                dungeonGroup:AddChild(checkbox)
-                dungeonCheckboxes[dungeon.name] = checkbox
+                    if not anySelected then
+                        minLevelEdit:SetText("15")
+                        maxLevelEdit:SetText("25")
+                    end
+                end
+            end)
+            dungeonGroup:AddChild(checkbox)
+            dungeonCheckboxes[dungeon.name] = checkbox
             end
         end
     end
     
-    -- Update dungeon list when type changes
-    typeDropdown:SetCallback("OnValueChanged", function()
+    -- Update dungeon list when type dropdown changes
+    typeDropdown:SetCallback("OnValueChanged", function(widget, event, value)
+        -- Set appropriate level defaults based on type
+        if value == "dungeon" then
+            minLevelEdit:SetText("15")
+            maxLevelEdit:SetText("25")
+        elseif value == "raid" then
+            minLevelEdit:SetText("60")
+            maxLevelEdit:SetText("60")
+        else
+            minLevelEdit:SetText("1")
+            maxLevelEdit:SetText("60")
+        end
         updateDungeonList()
     end)
     
     -- Initialize dungeon list
     updateDungeonList()
-    
-    -- Level range
-    local levelGroup = AceGUI:Create("SimpleGroup")
-    levelGroup:SetLayout("Flow")
-    levelGroup:SetFullWidth(true)
-    scrollFrame:AddChild(levelGroup)
-    
-    local minLevelEdit = AceGUI:Create("EditBox")
-    minLevelEdit:SetLabel("Min Level")
-    minLevelEdit:SetText("1")
-    minLevelEdit:SetWidth(100)
-    levelGroup:AddChild(minLevelEdit)
-    
-    local maxLevelEdit = AceGUI:Create("EditBox")
-    maxLevelEdit:SetLabel("Max Level") 
-    maxLevelEdit:SetText("60")
-    maxLevelEdit:SetWidth(100)
-    levelGroup:AddChild(maxLevelEdit)
     
     -- Group size
     local sizeGroup = AceGUI:Create("SimpleGroup")
@@ -1207,8 +2674,9 @@ function Grouper:CreateCreateTab(container)
     
     -- Location
     local locationEdit = AceGUI:Create("EditBox")
-    locationEdit:SetLabel("Location/Meeting Point")
+    locationEdit:SetLabel("Location/Meeting Point (max 20 chars)")
     locationEdit:SetFullWidth(true)
+    locationEdit:SetMaxLetters(20)
     locationEdit:SetText("")
     scrollFrame:AddChild(locationEdit)
     
@@ -1230,12 +2698,24 @@ function Grouper:CreateCreateTab(container)
     createButton:SetText("Create Group")
     createButton:SetFullWidth(true)
     createButton:SetCallback("OnClick", function()
+        local selectedType = typeDropdown:GetValue()
+        
+        -- Encode type as number: 1=Dungeon, 2=Raid, 3=Quest, 4=PvP, 5=Other
+        local typeId = 1 -- Default to dungeon
+        if selectedType == "dungeon" then typeId = 1
+        elseif selectedType == "raid" then typeId = 2
+        elseif selectedType == "quest" then typeId = 3
+        elseif selectedType == "pvp" then typeId = 4
+        elseif selectedType == "other" then typeId = 5
+        end
+        
         local groupData = {
             title = titleEdit:GetText(),
-            description = descEdit:GetText(),
-            type = typeDropdown:GetValue(),
-            minLevel = tonumber(minLevelEdit:GetText()) or 1,
-            maxLevel = tonumber(maxLevelEdit:GetText()) or 60,
+            description = "", -- No longer used
+            type = selectedType or "dungeon",
+            typeId = typeId,
+            minLevel = tonumber(minLevelEdit:GetText()) or 15,
+            maxLevel = tonumber(maxLevelEdit:GetText()) or 25,
             currentSize = tonumber(currentSizeEdit:GetText()) or 1,
             maxSize = tonumber(maxSizeEdit:GetText()) or 5,
             location = locationEdit:GetText(),
@@ -1333,6 +2813,13 @@ function Grouper:RefreshGroupList()
         return
     end
     
+    if self.db.profile.debug.enabled then
+        self:Print(string.format("DEBUG: 🔄 RefreshGroupList called. Groups in memory:"))
+        for id, group in pairs(self.groups) do
+            self:Print(string.format("DEBUG:   - %s: %s (leader: %s)", id, group.title, group.leader))
+        end
+    end
+    
     self.groupsScrollFrame:ReleaseChildren()
     
     local filteredGroups = self:GetFilteredGroups()
@@ -1368,8 +2855,22 @@ function Grouper:CreateGroupFrame(group)
     end
     
     local detailsLabel = AceGUI:Create("Label")
+    
+    -- Format leader name with role if available
+    local leaderText = group.leader
+    if group.leaderRole then
+        local roleColors = {
+            tank = "|cff0070DD", -- Blue for tank
+            healer = "|cff40FF40", -- Green for healer
+            dps = "|cffFF4040" -- Red for DPS
+        }
+        local roleColor = roleColors[group.leaderRole] or "|cffFFFFFF"
+        local roleCapitalized = group.leaderRole:gsub("^%l", string.upper) -- Capitalize first letter
+        leaderText = string.format("%s (%s%s|r)", group.leader, roleColor, roleCapitalized)
+    end
+    
     detailsLabel:SetText(string.format("|cffFFD700Leader:|r %s  |cffFFD700Type:|r %s  |cffFFD700Level:|r %d-%d\n|cffFFD700Location:|r %s%s\n|cffFFD700Description:|r %s",
-        group.leader,
+        leaderText,
         group.type,
         group.minLevel, group.maxLevel,
         group.location ~= "" and group.location or "Not specified",
