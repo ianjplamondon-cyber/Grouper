@@ -3027,7 +3027,67 @@ function Grouper:CreateMainWindow()
     self.mainFrame:SetStatusText(actuallyInChannel and "Connected to Grouper channel" or "Not connected to Grouper channel")
     self.mainFrame:SetLayout("Fill")
     self.mainFrame:SetWidth(700)
-    self.mainFrame:SetHeight(600)
+    self.mainFrame:SetHeight(800) -- Increased from 600 to 800 for more scroll space
+    
+    -- Add drag functionality to frame borders
+    local frame = self.mainFrame.frame
+    if frame then
+        frame:SetMovable(true)
+        
+        -- Create invisible drag regions on the borders
+        local borderWidth = 8
+        
+        -- Left border
+        local leftBorder = CreateFrame("Frame", nil, frame)
+        leftBorder:SetPoint("TOPLEFT", frame, "TOPLEFT", 0, 0)
+        leftBorder:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 0, 0)
+        leftBorder:SetWidth(borderWidth)
+        leftBorder:EnableMouse(true)
+        leftBorder:SetScript("OnMouseDown", function(self, button)
+            if button == "LeftButton" then
+                frame:StartMoving()
+            end
+        end)
+        leftBorder:SetScript("OnMouseUp", function(self, button)
+            if button == "LeftButton" then
+                frame:StopMovingOrSizing()
+            end
+        end)
+        
+        -- Right border
+        local rightBorder = CreateFrame("Frame", nil, frame)
+        rightBorder:SetPoint("TOPRIGHT", frame, "TOPRIGHT", 0, 0)
+        rightBorder:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", 0, 0)
+        rightBorder:SetWidth(borderWidth)
+        rightBorder:EnableMouse(true)
+        rightBorder:SetScript("OnMouseDown", function(self, button)
+            if button == "LeftButton" then
+                frame:StartMoving()
+            end
+        end)
+        rightBorder:SetScript("OnMouseUp", function(self, button)
+            if button == "LeftButton" then
+                frame:StopMovingOrSizing()
+            end
+        end)
+        
+        -- Bottom border
+        local bottomBorder = CreateFrame("Frame", nil, frame)
+        bottomBorder:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 0, 0)
+        bottomBorder:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", 0, 0)
+        bottomBorder:SetHeight(borderWidth)
+        bottomBorder:EnableMouse(true)
+        bottomBorder:SetScript("OnMouseDown", function(self, button)
+            if button == "LeftButton" then
+                frame:StartMoving()
+            end
+        end)
+        bottomBorder:SetScript("OnMouseUp", function(self, button)
+            if button == "LeftButton" then
+                frame:StopMovingOrSizing()
+            end
+        end)
+    end
     
     -- Restore position IMMEDIATELY after frame creation to avoid snapping
     if self.db.profile.debug.enabled then
@@ -3109,7 +3169,7 @@ function Grouper:CreateBrowseTab(container)
     minLevelSlider:SetLabel("Min Level")
     minLevelSlider:SetSliderValues(1, 60, 1)
     minLevelSlider:SetValue(self.db.profile.filters.minLevel)
-    minLevelSlider:SetWidth(150)
+    minLevelSlider:SetWidth(120) -- Reduced from 150
     minLevelSlider:SetCallback("OnValueChanged", function(widget, event, value)
         self.db.profile.filters.minLevel = value
         self:RefreshGroupList()
@@ -3120,7 +3180,7 @@ function Grouper:CreateBrowseTab(container)
     maxLevelSlider:SetLabel("Max Level")
     maxLevelSlider:SetSliderValues(1, 60, 1)
     maxLevelSlider:SetValue(self.db.profile.filters.maxLevel)
-    maxLevelSlider:SetWidth(150)
+    maxLevelSlider:SetWidth(120) -- Reduced from 150
     maxLevelSlider:SetCallback("OnValueChanged", function(widget, event, value)
         self.db.profile.filters.maxLevel = value
         self:RefreshGroupList()
@@ -3145,7 +3205,7 @@ function Grouper:CreateBrowseTab(container)
         local checkbox = AceGUI:Create("CheckBox")
         checkbox:SetLabel(typeInfo.label)
         checkbox:SetValue(self.db.profile.filters.dungeonTypes[typeInfo.key])
-        checkbox:SetWidth(100)
+        checkbox:SetWidth(85) -- Reduced from 100 to make more compact
         checkbox:SetCallback("OnValueChanged", function(widget, event, value)
             self.db.profile.filters.dungeonTypes[typeInfo.key] = value
             self:RefreshGroupList()
@@ -3156,7 +3216,7 @@ function Grouper:CreateBrowseTab(container)
     -- Dungeon filter dropdown
     local dungeonFilter = AceGUI:Create("Dropdown")
     dungeonFilter:SetLabel("Filter by Dungeon")
-    dungeonFilter:SetWidth(200)
+    dungeonFilter:SetWidth(180) -- Reduced from 200
     
     -- Build dungeon list for dropdown
     local dungeonList = {[""] = "All Dungeons"}
@@ -3174,7 +3234,7 @@ function Grouper:CreateBrowseTab(container)
     -- Refresh button
     local refreshButton = AceGUI:Create("Button")
     refreshButton:SetText("Refresh")
-    refreshButton:SetWidth(100)
+    refreshButton:SetWidth(80) -- Reduced from 100
     refreshButton:SetCallback("OnClick", function()
         -- Request fresh data from other players
         if self.db.profile.debug.enabled then
@@ -3195,7 +3255,7 @@ function Grouper:CreateBrowseTab(container)
     -- Groups list
     local groupsScrollFrame = AceGUI:Create("ScrollFrame")
     groupsScrollFrame:SetFullWidth(true)
-    groupsScrollFrame:SetFullHeight(true)
+    groupsScrollFrame:SetHeight(400) -- Set explicit height to use more space
     groupsScrollFrame:SetLayout("List")
     container:AddChild(groupsScrollFrame)
     
