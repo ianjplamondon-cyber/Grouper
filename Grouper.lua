@@ -3329,17 +3329,42 @@ function Grouper:CreateGroupFrame(group)
     whisperButton:SetText("Whisper Leader")
     whisperButton:SetWidth(120)
     whisperButton:SetCallback("OnClick", function()
-        -- Classic-compatible whisper initiation
-        if ChatEdit_GetActiveWindow then
+        -- Classic Era compatible whisper initiation
+        local whisperText = "/tell " .. group.leader .. " "
+        
+        -- Try multiple methods to activate chat with the whisper command
+        local success = false
+        
+        -- Method 1: Try ChatFrame_OpenChat (most reliable for Classic Era)
+        if ChatFrame_OpenChat then
+            ChatFrame_OpenChat(whisperText)
+            success = true
+        -- Method 2: Try DEFAULT_CHAT_FRAME editBox
+        elseif DEFAULT_CHAT_FRAME and DEFAULT_CHAT_FRAME.editBox then
+            local editBox = DEFAULT_CHAT_FRAME.editBox
+            if editBox then
+                editBox:SetText(whisperText)
+                editBox:Show()
+                editBox:SetFocus()
+                success = true
+            end
+        -- Method 3: Try ChatEdit_ActivateChat with current active window
+        elseif ChatEdit_GetActiveWindow then
             local editBox = ChatEdit_GetActiveWindow()
             if editBox then
+                editBox:SetText(whisperText)
                 ChatEdit_ActivateChat(editBox)
-                editBox:SetText("/tell " .. group.leader .. " ")
+                success = true
             end
-        else
-            -- Fallback for different Classic versions
-            DEFAULT_CHAT_FRAME.editBox:SetText("/tell " .. group.leader .. " ")
-            ChatEdit_ActivateChat(DEFAULT_CHAT_FRAME.editBox)
+        end
+        
+        -- Debug feedback
+        if self.db.profile.debug.enabled then
+            if success then
+                self:Print(string.format("DEBUG: ✓ Opened whisper to %s", group.leader))
+            else
+                self:Print(string.format("DEBUG: ✗ Failed to open whisper to %s", group.leader))
+            end
         end
     end)
     buttonGroup:AddChild(whisperButton)
