@@ -196,22 +196,15 @@ function Grouper:OnEnable()
     -- Note: WHISPER messages are now handled by AceComm automatically through OnCommReceived
     
     -- Register AceComm message handlers for new communication system (16 char limit)
-    self:RegisterComm("GRPR_GROUP", "OnCommReceived")       -- Compact GROUP_UPDATE with ChatThrottleLib
-    self:RegisterComm("GRPR_GRP_UPD", "OnCommReceived")     -- GROUP_UPDATE
-    self:RegisterComm("GROUP_UPDATE", "OnCommReceived")     -- Direct GROUP_UPDATE for responses
-    self:RegisterComm("GRPR_REQ_DATA", "OnCommReceived")    -- REQUEST_DATA  
-    self:RegisterComm("GRPR_PRESENCE", "OnCommReceived")    -- PRESENCE
-    self:RegisterComm("GRPR_TEST", "OnCommReceived")        -- TEST
-    self:RegisterComm("GRPR_GRP_UPD", "OnCommReceived")     -- GROUP_UPDATE through SendComm (16 chars max)
+    self:RegisterComm("GRPR_GROUP", "OnCommReceived")       -- Compact GROUP_UPDATE via channel
+    self:RegisterComm("GRPR_GRP_UPD", "OnCommReceived")     -- Serialized GROUP_UPDATE via whisper
+    self:RegisterComm("GRPR_CHUNK_REQ", "OnCommReceived")   -- Chunk requests
+    self:RegisterComm("GRPR_CHUNK_RES", "OnCommReceived")   -- Chunk responses
+    self:RegisterComm("GROUPER_TEST", "OnCommReceived")     -- Test messages
     
     if self.db.profile.debug.enabled then
-        self:Print("DEBUG: 📡 Registered AceComm prefixes: GROUP_UPDATE, GRPR_REQ_DATA, GRPR_PRESENCE, GRPR_TEST, GRPR_GRP_UPD")
+        self:Print("DEBUG: 📡 Registered AceComm prefixes: GRPR_GROUP, GRPR_GRP_UPD, GRPR_CHUNK_REQ, GRPR_CHUNK_RES, GROUPER_TEST")
     end
-    
-    -- Register GROUPER_ prefixes for standard AceComm communication
-    self:RegisterComm("GROUPER_TEST", "OnCommReceived")         -- Test messages (12 chars)
-    self:RegisterComm("GRPR_CHUNK_REQ", "OnCommReceived")       -- Chunk requests (13 chars)
-    self:RegisterComm("GRPR_CHUNK_RES", "OnCommReceived")       -- Chunk resends (13 chars)
     
     -- Check if already in channel, but don't auto-join
     self:ScheduleTimer("CheckInitialChannelStatus", 3)
@@ -914,10 +907,6 @@ end
 function Grouper:OnChannelMessage(event, message, sender, language, channelString, target, flags, unknown, channelNumber, channelName, instanceID)
     -- Process messages from any "Grouper" channel regardless of number
     if channelName ~= ADDON_CHANNEL then
-        -- Only show debug for non-Grouper channels if specifically requested
-        if self.db.profile.debug.enabled and self.db.profile.debug.showAllChannels then
-            self:Print(string.format("DEBUG: [OTHER CHANNEL] Ignoring message from channel '%s' (not '%s')", channelName or "nil", ADDON_CHANNEL))
-        end
         return
     end
     
@@ -1491,34 +1480,27 @@ function Grouper:OnCommReceived(prefix, message, distribution, sender)
             if self.db.profile.debug.enabled then
                 self:Print(string.format("DEBUG: ✓ Successfully deserialized GRPR_GRP_UPD message"))
                 
-                -- Add safe error handling for debug logging
-                local success_debug, error_debug = pcall(function()
-                    -- Safely check deserializedMessage.type
-                    local msgType = "nil"
-                    if deserializedMessage.type then
-                        msgType = tostring(deserializedMessage.type)
-                    end
-                    self:Print(string.format("DEBUG: deserializedMessage.type = %s", msgType))
-                    
-                    -- Safely check deserializedMessage.data
-                    if deserializedMessage.data then
-                        self:Print(string.format("DEBUG: deserializedMessage.data exists, calling ProcessReceivedMessage"))
-                        if type(deserializedMessage.data) == "table" then
-                            local groupId = deserializedMessage.data.id or "nil"
-                            local groupTitle = deserializedMessage.data.title or "nil"
-                            local groupLeader = deserializedMessage.data.leader or "nil"
-                            self:Print(string.format("DEBUG: Group ID: %s, Title: %s, Leader: %s", groupId, groupTitle, groupLeader))
-                        end
-                    else
-                        self:Print("DEBUG: deserializedMessage.data is nil!")
-                    end
-                    
-                    self:Print(string.format("DEBUG: About to call ProcessReceivedMessage..."))
-                end)
-                
-                if not success_debug then
-                    self:Print(string.format("DEBUG: ✗ Error in debug logging: %s", tostring(error_debug)))
+                -- Safely check deserializedMessage.type
+                local msgType = "nil"
+                if deserializedMessage.type then
+                    msgType = tostring(deserializedMessage.type)
                 end
+                self:Print(string.format("DEBUG: deserializedMessage.type = %s", msgType))
+                
+                -- Safely check deserializedMessage.data
+                if deserializedMessage.data then
+                    self:Print(string.format("DEBUG: deserializedMessage.data exists, calling ProcessReceivedMessage"))
+                    if type(deserializedMessage.data) == "table" then
+                        local groupId = deserializedMessage.data.id or "nil"
+                        local groupTitle = deserializedMessage.data.title or "nil"
+                        local groupLeader = deserializedMessage.data.leader or "nil"
+                        self:Print(string.format("DEBUG: Group ID: %s, Title: %s, Leader: %s", groupId, groupTitle, groupLeader))
+                    end
+                else
+                    self:Print("DEBUG: deserializedMessage.data is nil!")
+                end
+                
+                self:Print(string.format("DEBUG: About to call ProcessReceivedMessage..."))
             end
             -- Pass the whole deserialized message, not just the data part
             local success2, error2 = pcall(function()
@@ -1570,61 +1552,19 @@ function Grouper:OnCommReceived(prefix, message, distribution, sender)
         -- Handle compact format directly from AceComm (message already includes GRPR_GROUP# prefix)
         self:HandleCompactGroupUpdate(message, sender)
         return
-    elseif prefix == "GROUP_UPDATE" then
-        messageType = "GROUP_UPDATE"
-        -- Handle compact format directly (no serialization needed)
-        local parts = {}
-        for part in string.gmatch(message, "([^|]*)") do
-            table.insert(parts, part)
-        end
-        
-        if #parts >= 13 then
-            local groupData = {
-                id = parts[1],
-                title = parts[2],
-                type = parts[3],
-                playerName = parts[4],
-                leader = parts[4], -- Map playerName to leader for HandleGroupUpdate compatibility
-                className = parts[5],
-                level = tonumber(parts[6]) or 1,
-                minLevel = tonumber(parts[7]) or 1,
-                maxLevel = tonumber(parts[8]) or 60,
-                description = parts[9],
-                quest = parts[10],
-                zone = parts[11],
-                timestamp = tonumber(parts[12]) or time(),
-                playerCount = tonumber(parts[13]) or 1
-            }
-            
-            if self.db.profile.debug.enabled then
-                self:Print(string.format("DEBUG: Received compact GROUP_UPDATE for %s (%s) from %s", 
-                    groupData.id, groupData.title, sender))
-            end
-            
-            self:HandleGroupUpdate(groupData, sender)
-            return
-        else
-            if self.db.profile.debug.enabled then
-                self:Print(string.format("DEBUG: Invalid compact GROUP_UPDATE format from %s (got %d parts, expected 13)", sender, #parts))
-            end
-            return
-        end
-    elseif prefix == "GRPR_REQ_DATA" then
-        messageType = "REQUEST_DATA"
-    elseif prefix == "GRPR_PRESENCE" then
-        messageType = "PRESENCE"
-    elseif prefix == "GRPR_TEST" then
-        messageType = "TEST"
-    elseif prefix == "GROUPER_TEST" then
-        messageType = "TEST"
     elseif prefix == "GRPR_CHUNK_REQ" then
         -- Handle chunk request directly
         self:HandleChunkRequest(message, sender)
         return
     elseif prefix == "GRPR_CHUNK_RES" then
-        -- Handle chunk resend - treat as normal channel message for legacy compatibility
-        self:HandleGrouperMessage(message, sender)
-        return
+        -- Handle chunk resend - process like a regular AceComm message
+        if self.db.profile.debug.enabled then
+            self:Print(string.format("DEBUG: Received GRPR_CHUNK_RES from %s, processing as AceComm message", sender))
+        end
+        -- Don't return early - let it fall through to normal processing
+        messageType = "CHUNK_RESPONSE"
+    elseif prefix == "GROUPER_TEST" then
+        messageType = "TEST"
     else
         if self.db.profile.debug.enabled then
             self:Print(string.format("DEBUG: Unknown AceComm prefix: %s", prefix))
