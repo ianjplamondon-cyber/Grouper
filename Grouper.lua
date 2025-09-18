@@ -206,12 +206,13 @@ function Grouper:OnEnable()
     -- Register AceComm message handlers for new communication system (16 char limit)
     self:RegisterComm("GRPR_GROUP", "OnCommReceived")       -- Compact GROUP_UPDATE via channel
     self:RegisterComm("GRPR_GRP_UPD", "OnCommReceived")     -- Serialized GROUP_UPDATE via whisper
+    self:RegisterComm("GRPR_GRP_RMV", "OnCommReceived")     -- GROUP_REMOVE messages
     self:RegisterComm("GRPR_CHUNK_REQ", "OnCommReceived")   -- Chunk requests
     self:RegisterComm("GRPR_CHUNK_RES", "OnCommReceived")   -- Chunk responses
     self:RegisterComm("GROUPER_TEST", "OnCommReceived")     -- Test messages
     
     if self.db.profile.debug.enabled then
-        self:Print("DEBUG: 📡 Registered AceComm prefixes: GRPR_GROUP, GRPR_GRP_UPD, GRPR_CHUNK_REQ, GRPR_CHUNK_RES, GROUPER_TEST")
+        self:Print("DEBUG: 📡 Registered AceComm prefixes: GRPR_GROUP, GRPR_GRP_UPD, GRPR_GRP_RMV, GRPR_CHUNK_REQ, GRPR_CHUNK_RES, GROUPER_TEST")
     end
     
     -- Check if already in channel, but don't auto-join
@@ -230,7 +231,7 @@ function Grouper:OnEnable()
     end
     
     -- Start periodic tasks and store timer handles
-    self.cleanupTimer = self:ScheduleRepeatingTimer("CleanupOldGroups", 60) -- Clean up every minute
+    self.cleanupTimer = self:ScheduleRepeatingTimer("CleanupOldGroups", 300) -- 5 minutes
     -- Disable presence timer to prevent protected function issues: self.presenceTimer = self:ScheduleRepeatingTimer("BroadcastPresence", 600)
     self.chunksCleanupTimer = self:ScheduleRepeatingTimer("CleanupOldAceCommChunks", 120) -- Clean up incomplete AceComm chunks every 2 minutes
 end
@@ -449,10 +450,12 @@ end
 
 -- Communication functions using AceComm-3.0
 function Grouper:SendComm(messageType, data, distribution, target, priority)
-    -- For GROUP_UPDATE and REQUEST_DATA, use direct channel messaging for CHANNEL distribution
+    -- For GROUP_UPDATE, GROUP_REMOVE, and REQUEST_DATA, use direct channel messaging for CHANNEL distribution
     -- But allow WHISPER and other distributions to use proper AceComm
     if messageType == "GROUP_UPDATE" and (distribution == "CHANNEL" or not distribution) then
         return self:SendGroupUpdateViaChannel(data)
+    elseif messageType == "GROUP_REMOVE" and (distribution == "CHANNEL" or not distribution) then
+        return self:SendGroupRemoveViaChannel(data)
     elseif messageType == "REQUEST_DATA" and (distribution == "CHANNEL" or not distribution) then
         return self:SendRequestDataViaChannel(data)
     end
@@ -499,9 +502,11 @@ function Grouper:SendComm(messageType, data, distribution, target, priority)
     
     local success, errorMsg = pcall(function()
         local prefix = "GRPR_" .. messageType
-        -- Shorten GROUP_UPDATE to fit 16-char limit
+        -- Shorten prefixes to fit 16-char limit
         if messageType == "GROUP_UPDATE" then
             prefix = "GRPR_GRP_UPD"
+        elseif messageType == "GROUP_REMOVE" then
+            prefix = "GRPR_GRP_RMV"
         end
         if self.db.profile.debug.enabled then
             self:Print(string.format("DEBUG: ⚡ Sending AceComm with prefix='%s' to channel %d", prefix, commTarget))
@@ -639,6 +644,37 @@ function Grouper:SendGroupUpdateViaChannel(groupData)
     return true
 end
 
+function Grouper:SendGroupRemoveViaChannel(data)
+    -- Use direct channel messaging for GROUP_REMOVE
+    local channelIndex = self:GetGrouperChannelIndex()
+    if channelIndex <= 0 then
+        if self.db.profile.debug.enabled then
+            self:Print("DEBUG: ✗ Cannot send GROUP_REMOVE - not in Grouper channel")
+        end
+        return false
+    end
+    
+    -- Create simple GROUP_REMOVE message: GRPR_GROUP_REMOVE:groupId:leader:timestamp
+    local message = string.format("GRPR_GROUP_REMOVE:%s:%s:%d",
+        data.id or "",
+        UnitName("player"),
+        time()
+    )
+    
+    if self.db.profile.debug.enabled then
+        self:Print(string.format("DEBUG: ⚡ Sending GROUP_REMOVE via direct channel %d: %s", channelIndex, message))
+    end
+    
+    -- Send via direct channel message
+    SendChatMessage(message, "CHANNEL", nil, channelIndex)
+    
+    if self.db.profile.debug.enabled then
+        self:Print("DEBUG: ✓ GROUP_REMOVE sent via direct channel")
+    end
+    
+    return true
+end
+
 function Grouper:SendRequestDataViaChannel(data)
     -- Use direct channel messaging for REQUEST_DATA
     local channelIndex = self:GetGrouperChannelIndex()
@@ -749,6 +785,56 @@ function Grouper:HandleDirectGroupUpdate(message, sender)
     
     -- Use the same processing as other group updates
     self:HandleGroupUpdate(groupData, sender)
+end
+
+function Grouper:HandleDirectGroupRemove(message, sender)
+    -- Parse: GRPR_GROUP_REMOVE:groupId:leader:timestamp
+    local parts = {string.split(":", message)}
+    if #parts < 4 then
+        if self.db.profile.debug.enabled then
+            self:Print(string.format("DEBUG: Invalid GROUP_REMOVE format from %s", sender))
+        end
+        return
+    end
+    
+    local groupId = parts[2]
+    local leader = parts[3]
+    local timestamp = tonumber(parts[4])
+    
+    if self.db.profile.debug.enabled then
+        self:Print(string.format("DEBUG: Processing direct GROUP_REMOVE: groupId=%s, leader=%s from %s", 
+            groupId, leader, sender))
+    end
+    
+    -- Only allow the group leader to remove their own group
+    local group = self.groups[groupId]
+    
+    -- Normalize names for comparison (remove server names)
+    local senderName = sender:match("^([^-]+)") or sender  -- Get name before first dash
+    local groupLeaderName = group and (group.leader:match("^([^-]+)") or group.leader)
+    
+    if self.db.profile.debug.enabled then
+        self:Print(string.format("DEBUG: Name comparison - senderName='%s', groupLeaderName='%s'", 
+            senderName, groupLeaderName or "nil"))
+    end
+    
+    if group and groupLeaderName == senderName then
+        self.groups[groupId] = nil
+        if self.db.profile.debug.enabled then
+            self:Print(string.format("DEBUG: ✓ Removed group %s by leader %s", groupId, senderName))
+        end
+        -- Refresh the UI to reflect the removal
+        self:RefreshGroupList()
+    else
+        if self.db.profile.debug.enabled then
+            if not group then
+                self:Print(string.format("DEBUG: ✗ Cannot remove - group %s not found", groupId))
+            else
+                self:Print(string.format("DEBUG: ✗ Cannot remove - %s is not leader of group %s (leader: %s)", 
+                    senderName, groupId, groupLeaderName))
+            end
+        end
+    end
 end
 
 function Grouper:HandleDirectRequestData(message, sender)
@@ -959,6 +1045,15 @@ function Grouper:OnChannelMessage(event, message, sender, language, channelStrin
             self:Print(string.format("DEBUG: ✓ RECEIVED DIRECT CHANNEL GROUP_UPDATE from %s", sender))
         end
         self:HandleDirectGroupUpdate(message, sender)
+        return
+    end
+    
+    -- Check for direct GROUP_REMOVE messages
+    if message:match("^GRPR_GROUP_REMOVE:") then
+        if self.db.profile.debug.enabled then
+            self:Print(string.format("DEBUG: ✓ RECEIVED DIRECT CHANNEL GROUP_REMOVE from %s", sender))
+        end
+        self:HandleDirectGroupRemove(message, sender)
         return
     end
     
@@ -1560,6 +1655,31 @@ function Grouper:OnCommReceived(prefix, message, distribution, sender)
         -- Handle compact format directly from AceComm (message already includes GRPR_GROUP# prefix)
         self:HandleCompactGroupUpdate(message, sender)
         return
+    elseif prefix == "GRPR_GRP_RMV" then
+        messageType = "GROUP_REMOVE"
+        if self.db.profile.debug.enabled then
+            self:Print(string.format("DEBUG: ✓ RECEIVED GRPR_GRP_RMV from %s, deserializing", sender))
+        end
+        -- Handle serialized GROUP_REMOVE message
+        local pcall_success, deserialize_success, deserializedMessage = pcall(self.Deserialize, self, message)
+        if pcall_success and deserialize_success and deserializedMessage then
+            if self.db.profile.debug.enabled then
+                self:Print(string.format("DEBUG: ✓ Successfully deserialized GRPR_GRP_RMV message"))
+            end
+            local success2, error2 = pcall(function()
+                self:ProcessReceivedMessage(deserializedMessage.type, deserializedMessage, sender)
+            end)
+            if not success2 then
+                if self.db.profile.debug.enabled then
+                    self:Print(string.format("DEBUG: ✗ ProcessReceivedMessage failed: %s", tostring(error2)))
+                end
+            end
+        else
+            if self.db.profile.debug.enabled then
+                self:Print(string.format("DEBUG: ✗ Failed to deserialize GRPR_GRP_RMV from %s", sender))
+            end
+        end
+        return
     elseif prefix == "GRPR_CHUNK_REQ" then
         -- Handle chunk request directly
         self:HandleChunkRequest(message, sender)
@@ -1704,6 +1824,11 @@ function Grouper:ProcessReceivedMessage(messageType, data, sender)
             self:Print(string.format("DEBUG: Processing REQUEST_DATA from %s", sender))
         end
         self:HandleDataRequest(sender)
+    elseif messageType == "GROUP_REMOVE" then
+        if self.db.profile.debug.enabled then
+            self:Print(string.format("DEBUG: Processing GROUP_REMOVE from %s", sender))
+        end
+        self:HandleGroupRemove(data.data, sender)
     elseif messageType == "PRESENCE" then
         self:HandlePresence(data.data, sender)
     elseif messageType == "TEST" then
@@ -2203,18 +2328,28 @@ end
 function Grouper:CleanupOldGroups()
     local currentTime = time()
     local expireTime = 3600 -- 1 hour
+    local removedCount = 0
     
     for id, group in pairs(self.groups) do
         if currentTime - group.timestamp > expireTime then
+            if self.db.profile.debug.enabled then
+                self:Print(string.format("DEBUG: Expired group: %s (age: %d seconds)", group.title or "Unknown", currentTime - group.timestamp))
+            end
             self.groups[id] = nil
+            removedCount = removedCount + 1
         end
     end
     
     -- Cleanup offline players
+    local playerExpireTime = expireTime * 2 -- Keep player data longer than groups
     for name, player in pairs(self.players) do
-        if currentTime - player.lastSeen > expireTime then
+        if currentTime - player.lastSeen > playerExpireTime then
             self.players[name] = nil
         end
+    end
+    
+    if removedCount > 0 and self.db.profile.debug.enabled then
+        self:Print(string.format("DEBUG: Cleaned up %d expired groups", removedCount))
     end
 end
 
