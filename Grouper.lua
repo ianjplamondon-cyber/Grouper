@@ -2823,13 +2823,19 @@ function Grouper:SaveWindowPosition()
             self.db.profile.ui.position.xOfs = xOfs or 0
             self.db.profile.ui.position.yOfs = yOfs or 0
             
-            -- Force database save to ensure position is written to SavedVariables
+            -- Save window size
+            local width = self.mainFrame.frame:GetWidth()
+            local height = self.mainFrame.frame:GetHeight()
+            self.db.profile.ui.position.width = width
+            self.db.profile.ui.position.height = height
+
+            -- Force database save to ensure position and size are written to SavedVariables
             if self.db.Flush then
                 self.db:Flush()
             end
-            
+
             if self.db.profile.debug.enabled then
-                self:Print(string.format("DEBUG: Saved window position: %s %s %.0f %.0f", point, relativePoint, xOfs or 0, yOfs or 0))
+                self:Print(string.format("DEBUG: Saved window position: %s %s %.0f %.0f, size: %.0f x %.0f", point, relativePoint, xOfs or 0, yOfs or 0, width or 0, height or 0))
             end
         end
     end
@@ -2841,14 +2847,18 @@ function Grouper:RestoreWindowPosition()
         if pos.point and pos.relativePoint and pos.xOfs ~= nil and pos.yOfs ~= nil then
             self.mainFrame.frame:ClearAllPoints()
             self.mainFrame.frame:SetPoint(pos.point, UIParent, pos.relativePoint, pos.xOfs, pos.yOfs)
-            
+            -- Restore window size if available
+            if pos.width and pos.height then
+                self.mainFrame.frame:SetWidth(pos.width)
+                self.mainFrame.frame:SetHeight(pos.height)
+            end
             if self.db.profile.debug.enabled then
-                self:Print(string.format("DEBUG: Restored window position: %s %s %.0f %.0f", pos.point, pos.relativePoint, pos.xOfs, pos.yOfs))
-                
-                -- Verify the position was actually set
+                self:Print(string.format("DEBUG: Restored window position: %s %s %.0f %.0f, size: %.0f x %.0f", pos.point, pos.relativePoint, pos.xOfs, pos.yOfs, pos.width or 0, pos.height or 0))
+                -- Verify the position and size were actually set
                 local actualPoint, actualRelativeTo, actualRelativePoint, actualXOfs, actualYOfs = self.mainFrame.frame:GetPoint()
-                self:Print(string.format("DEBUG: Verified position after restore: %s %s %.0f %.0f", 
-                    actualPoint or "nil", actualRelativePoint or "nil", actualXOfs or 0, actualYOfs or 0))
+                local actualWidth = self.mainFrame.frame:GetWidth()
+                local actualHeight = self.mainFrame.frame:GetHeight()
+                self:Print(string.format("DEBUG: Verified position after restore: %s %s %.0f %.0f, size: %.0f x %.0f", actualPoint or "nil", actualRelativePoint or "nil", actualXOfs or 0, actualYOfs or 0, actualWidth or 0, actualHeight or 0))
             end
         else
             if self.db.profile.debug.enabled then
