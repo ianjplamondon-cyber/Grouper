@@ -170,7 +170,7 @@ local defaults = {
 local dataObj = {
     type = "data source",
     text = "Grouper",
-    icon = "Interface\\AddOns\\Grouper\\Textures\\GrouperIcon.png",
+    icon = "Interface\\AddOns\\Grouper\\Textures\\GrouperIcon.tga",
     OnClick = function(self, button)
         if button == "LeftButton" then
             Grouper:ToggleMainWindow()
@@ -3530,12 +3530,41 @@ function Grouper:CreateGroupManageFrame(group)
     infoLabel:SetFullWidth(true)
     frame:AddChild(infoLabel)
     
+    -- Party member fields
+    local membersGroup = AceGUI:Create("InlineGroup")
+    membersGroup:SetTitle("Party Members")
+    membersGroup:SetFullWidth(true)
+    membersGroup:SetLayout("Flow")
+    for i = 1, 5 do
+        local label = AceGUI:Create("Label")
+        label:SetWidth(250)
+        local name, class, level
+        if IsInRaid() then
+            name, _, _, _, class, _, level = GetRaidRosterInfo(i)
+        else
+            name = UnitName("party" .. i)
+            class = UnitClass("party" .. i)
+            level = UnitLevel("party" .. i)
+        end
+        if name then
+            local fullName = name
+            if not IsInRaid() and GetRealmName() then
+                fullName = name .. "-" .. GetRealmName()
+            end
+            label:SetText(string.format("%s | %s | %d", fullName, class or "?", level or 0))
+        else
+            label:SetText("(empty)")
+        end
+        membersGroup:AddChild(label)
+    end
+    frame:AddChild(membersGroup)
+
     -- Buttons
     local buttonGroup = AceGUI:Create("SimpleGroup")
     buttonGroup:SetLayout("Flow")
     buttonGroup:SetFullWidth(true)
     frame:AddChild(buttonGroup)
-    
+
     local editButton = AceGUI:Create("Button")
     editButton:SetText("Edit")
     editButton:SetWidth(100)
@@ -3543,7 +3572,7 @@ function Grouper:CreateGroupManageFrame(group)
         self:ShowEditGroupDialog(group)
     end)
     buttonGroup:AddChild(editButton)
-    
+
     local removeButton = AceGUI:Create("Button")
     removeButton:SetText("Remove")
     removeButton:SetWidth(100)
@@ -3554,7 +3583,7 @@ function Grouper:CreateGroupManageFrame(group)
         end
     end)
     buttonGroup:AddChild(removeButton)
-    
+
     return frame
 end
 
