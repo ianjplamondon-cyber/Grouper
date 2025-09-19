@@ -191,7 +191,7 @@ local dataObj = {
 function Grouper:OnInitialize()
     -- Initialize database
     self.db = AceDB:New("GrouperDB", defaults, true)
-    
+
     -- Initialize storage
     self.groups = {}
     self.players = {}
@@ -199,29 +199,32 @@ function Grouper:OnInitialize()
     self.grouperChannelNumber = nil -- Cache for our Grouper channel number
 
     -- Cache local player info at startup
-    local name = UnitName("player")
-    local class = UnitClass("player")
-    local race = UnitRace("player")
-    local level = UnitLevel("player")
-    local realm = GetRealmName() or ""
-    local fullName = name .. "-" .. realm
-    self.playerInfo = {
-        name = name,
-        class = class,
-        race = race,
-        level = level,
-        fullName = fullName
-    }
-    
+    self.playerInfo = {}
+    if UnitName and UnitClass and UnitRace and UnitLevel and GetRealmName then
+        local name = UnitName("player")
+        local class = UnitClass("player")
+        local race = UnitRace("player")
+        local level = UnitLevel("player")
+        local realm = GetRealmName() or ""
+        local fullName = name .. "-" .. realm
+        self.playerInfo = {
+            name = name,
+            class = class,
+            race = race,
+            level = level,
+            fullName = fullName
+        }
+    end
+
     -- Register chat commands
     self:RegisterChatCommand("grouper", "SlashCommand")
-    
+
     -- Initialize minimap icon
     LibDBIcon:Register(ADDON_NAME, dataObj, self.db.profile.minimap)
-    
+
     -- Create options table
     self:SetupOptions()
-    
+
     self:Print("Loaded! Type /grouper to open the group finder.")
 end
 
