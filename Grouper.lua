@@ -1983,7 +1983,15 @@ function Grouper:CreateGroup(groupData)
         maxSize = groupData.maxSize or 5,
         location = groupData.location or "",
         dungeons = groupData.dungeons or {},
-        timestamp = time()
+        timestamp = time(),
+        members = {
+            {
+                name = self.playerInfo.fullName,
+                class = self.playerInfo.class,
+                race = self.playerInfo.race,
+                level = self.playerInfo.level
+            }
+        }
     }
     
     self.groups[group.id] = group
@@ -3559,21 +3567,10 @@ function Grouper:CreateGroupManageFrame(group)
     for i = 1, 5 do
         local label = AceGUI:Create("Label")
         label:SetWidth(250)
-        local name, class, level
-        if IsInRaid() then
-            name, _, _, _, class, _, level = GetRaidRosterInfo(i)
-        else
-            name = UnitName("party" .. i)
-            class = UnitClass("party" .. i)
-            level = UnitLevel("party" .. i)
-        end
-        if name then
-            local fullName = name
-            if not IsInRaid() and GetRealmName() then
-                fullName = name .. "-" .. GetRealmName()
-            end
-            local color = CLASS_COLORS[string.upper(class or "PRIEST")] or "FFFFFF"
-            label:SetText(string.format("|cff%s%s|r | %s | %d", color, fullName, class or "?", level or 0))
+        if i == 1 and group.members and group.members[1] then
+            local member = group.members[1]
+            local color = CLASS_COLORS[string.upper(member.class or "PRIEST")] or "FFFFFF"
+            label:SetText(string.format("|cff%s%s|r | %s | %d", color, member.name or "?", member.class or "?", member.level or 0))
         else
             label:SetText("(empty)")
         end
