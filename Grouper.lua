@@ -3854,4 +3854,12 @@ function Grouper:SetupOptions()
     AceConfigDialog:AddToBlizOptions(ADDON_NAME)
 end
 
--- Auto-Join Integration Functions - No external dependencies needed!
+-- Register slash command to show current player's cached data (place at end of file)
+Grouper:RegisterChatCommand("groupercp", function()
+    local info = Grouper.playerInfo
+    if info then
+        Grouper:Print(string.format("Player Cache: Name: %s | Class: %s | Race: %s | Level: %s | FullName: %s", info.name or "", info.class or "", info.race or "", info.level or "", info.fullName or ""))
+    else
+        Grouper:Print("No player data cached.")
+    end
+end)
