@@ -12,29 +12,6 @@ local ADDON_CHANNEL = "Grouper"
 local ADDON_VERSION = "1.0.0"
 
 -- StaticPopup for Auto-Join invite confirmation
-StaticPopupDialogs["GROUPER_AUTOJOIN_INVITE"] = {
-    text = "%s wants to join your group via Grouper Auto-Join. Invite them?",
-    button1 = "Yes",
-    button2 = "No",
-    OnAccept = function(self, data)
-        local success, error = pcall(function()
-            if InviteUnit then
-                InviteUnit(data)
-                Grouper:Print(string.format("✓ Invited %s via Grouper Auto-Join", data))
-            else
-                Grouper:Print("ERROR: InviteUnit function not available")
-            end
-        end)
-        
-        if not success then
-            Grouper:Print(string.format("✗ Failed to invite %s: %s", data, error or "Unknown error"))
-        end
-    end,
-    timeout = 30,
-    whileDead = true,
-    hideOnEscape = true,
-    preferredIndex = 3,
-}
 
 -- String utility functions
 if not string.trim then
@@ -178,10 +155,6 @@ local defaults = {
         debug = {
             enabled = false,
         },
-        autoJoin = {
-            enabled = true,
-            autoAccept = true, -- true = auto-accept invites, false = show popup to leader
-        },
         ui = {
             position = {
                 point = "CENTER",
@@ -296,12 +269,10 @@ function Grouper:OnEnable()
     -- Disable presence timer to prevent protected function issues: self.presenceTimer = self:ScheduleRepeatingTimer("BroadcastPresence", 600)
     self.chunksCleanupTimer = self:ScheduleRepeatingTimer("CleanupOldAceCommChunks", 120) -- Clean up incomplete AceComm chunks every 2 minutes
     
-    -- Auto-join enabled message
-    if self.db.profile.autoJoin.enabled then
-        self:ScheduleTimer(function()
-            self:Print("Auto-Join enabled: Use Auto-Join buttons for instant invite requests")
-        end, 2)
-    end
+    -- Auto-join is always enabled
+    self:ScheduleTimer(function()
+        self:Print("Auto-Join enabled: Use Auto-Join buttons for instant invite requests")
+    end, 2)
 end
 
 -- Handle party invite requests for auto-accept functionality
@@ -1845,95 +1816,22 @@ end
 function Grouper:OnAutoJoinRequest(prefix, message, distribution, sender)
     self:Print(string.format("DEBUG: OnAutoJoinRequest called - prefix: %s, sender: %s, distribution: %s", prefix, sender, distribution))
     
-    -- Simple cooldown to prevent duplicate processing (5 seconds)
-    local currentTime = time()
-    if not self.lastAutoJoinRequest then
-        self.lastAutoJoinRequest = {}
-    end
-    
-    local lastRequestTime = self.lastAutoJoinRequest[sender] or 0
-    if currentTime - lastRequestTime < 5 then
-        self:Print(string.format("DEBUG: Ignoring duplicate auto-join request from %s (cooldown)", sender))
-        return
-    end
-    self.lastAutoJoinRequest[sender] = currentTime
-    
-    -- Check if auto-join feature is enabled
-    if not self.db.profile.autoJoin.enabled then
-        self:Print("DEBUG: Auto-Join is disabled, ignoring request")
-        return
-    end
-    
-    self:Print("DEBUG: Auto-Join is enabled, processing request")
-    
-    -- Deserialize the message
+    -- Always auto-accept: deserialize and invite
     local deserializeSuccess, deserializedMessage = self:Deserialize(message)
     if not deserializeSuccess or not deserializedMessage then
         self:Print(string.format("DEBUG: Failed to deserialize auto-join request from %s - success: %s", sender, tostring(deserializeSuccess)))
         return
     end
-    
-    self:Print(string.format("DEBUG: Successfully deserialized message from %s", sender))
-    
-    -- Debug: Print the entire deserialized message structure
-    self:Print("DEBUG: Deserialized message contents:")
-    if type(deserializedMessage) == "table" then
-        for k, v in pairs(deserializedMessage) do
-            self:Print(string.format("DEBUG:   %s = %s", tostring(k), tostring(v)))
-        end
-    else
-        self:Print(string.format("DEBUG: Message is not a table, it's: %s", type(deserializedMessage)))
-    end
-    
-    -- Validate message structure
     if deserializedMessage.type ~= "INVITE_REQUEST" or not deserializedMessage.requester then
-        self:Print(string.format("DEBUG: Invalid auto-join request format - type: %s, requester: %s", 
-            tostring(deserializedMessage.type), tostring(deserializedMessage.requester)))
+        self:Print(string.format("DEBUG: Invalid auto-join request format - type: %s, requester: %s", tostring(deserializedMessage.type), tostring(deserializedMessage.requester)))
         return
     end
-    
-    -- Use sender (which includes realm) instead of requester field for the invite
-    local requester = sender -- This includes the realm name like "Pickyminer-OldBlanchy"
-    self:Print(string.format("DEBUG: Valid auto-join request from %s, checking auto-accept setting", requester))
-    self:Print(string.format("DEBUG: autoAccept setting: %s", tostring(self.db.profile.autoJoin.autoAccept)))
-    
-    -- Check if we should auto-accept (for group leaders) or show popup
-    if self.db.profile.autoJoin.autoAccept then
-        self:Print("DEBUG: Auto-accept is enabled, sending invite immediately")
-        self:Print(string.format("DEBUG: About to call InviteUnit('%s')", requester))
-        
-        -- Check if InviteUnit function exists
-        if InviteUnit then
-            self:Print("DEBUG: InviteUnit function exists, calling it now")
-        else
-            self:Print("DEBUG: ERROR - InviteUnit function does not exist!")
-        end
-        
-        -- Auto-accept: send invite immediately
-        local inviteSuccess, inviteError = pcall(function()
-            if InviteUnit then
-                self:Print(string.format("DEBUG: Calling InviteUnit('%s')", requester))
-                InviteUnit(requester)
-                self:Print(string.format("DEBUG: InviteUnit call completed"))
-                self:Print(string.format("✓ Auto-invited %s via Grouper Auto-Join", requester))
-            else
-                self:Print("ERROR: InviteUnit function not available")
-            end
-        end)
-        
-        if not inviteSuccess then
-            self:Print(string.format("✗ Failed to auto-invite %s: %s", requester, inviteError or "Unknown error"))
-        else
-            self:Print(string.format("DEBUG: InviteUnit pcall succeeded"))
-        end
-        
-        self:Print("DEBUG: Auto-accept path completed, returning")
-        return -- Exit here to prevent popup
+    local requester = sender
+    if InviteUnit then
+        InviteUnit(requester)
+        self:Print(string.format("✓ Auto-invited %s via Grouper Auto-Join", requester))
     else
-        self:Print("DEBUG: Auto-accept is disabled, showing popup")
-        -- Show popup for confirmation (use sender which includes realm)
-        StaticPopup_Show("GROUPER_AUTOJOIN_INVITE", sender)
-        self:Print("DEBUG: Popup shown, returning")
+        self:Print("ERROR: InviteUnit function not available")
         return -- Exit here after showing popup
     end
 end
@@ -3779,72 +3677,51 @@ function Grouper:CreateGroupFrame(group)
     
     local inviteButton = AceGUI:Create("Button")
     
-    -- Use Auto-Join button if enabled, otherwise traditional Request Invite
-    if self.db.profile.autoJoin.enabled then
-        inviteButton:SetText("Auto-Join")
-        inviteButton:SetWidth(120)
-        inviteButton:SetCallback("OnClick", function()
-            self:Print("DEBUG: Auto-Join button clicked!")
-            self:Print(string.format("DEBUG: Group leader: %s", group.leader))
-            self:Print(string.format("DEBUG: Auto-Join enabled: %s", tostring(self.db.profile.autoJoin.enabled)))
-            
-            local success, errorMessage = pcall(function()
-                -- Send AceComm message to group leader requesting an invite
-                local playerName = UnitName("player")
-                local message = {
-                    type = "INVITE_REQUEST",
-                    requester = playerName,
-                    timestamp = time()
-                }
-                
-                self:Print("DEBUG: Sending invite request via AceComm to " .. group.leader)
-                self:SendCommMessage("GrouperAutoJoin", self:Serialize(message), "WHISPER", group.leader)
-                self:Print("DEBUG: AceComm invite request sent")
-            end)
-            
-            if success then
-                self:Print(string.format("✓ Sent invite request to %s via AceComm", group.leader))
-            else
-                self:Print(string.format("✗ Failed to send invite request: %s", errorMessage or "Unknown error"))
-                
-                -- Fallback: try with realm-stripped name
-                local strippedName = self:StripRealmName(group.leader)
-                if strippedName ~= group.leader then
-                    self:Print(string.format("DEBUG: Trying with stripped name: %s", strippedName))
-                    local success2, errorMessage2 = pcall(function()
-                        local playerName = UnitName("player")
-                        local message = {
-                            type = "INVITE_REQUEST",
-                            requester = playerName,
-                            timestamp = time()
-                        }
-                        self:SendCommMessage("GrouperAutoJoin", self:Serialize(message), "WHISPER", strippedName)
-                    end)
-                    
-                    if success2 then
-                        self:Print(string.format("✓ Sent invite request to %s via AceComm (stripped)", strippedName))
-                    else
-                        self:Print(string.format("✗ Also failed with stripped name: %s", errorMessage2 or "Unknown error"))
-                        -- Final fallback: traditional whisper
-                        SendChatMessage("Hi! I'd like to join your group (sent via Grouper Auto-Join)", "WHISPER", nil, group.leader)
-                        self:Print("DEBUG: Used traditional whisper as final fallback")
-                    end
+    -- Always use Auto-Join button
+    inviteButton:SetText("Auto-Join")
+    inviteButton:SetWidth(120)
+    inviteButton:SetCallback("OnClick", function()
+        self:Print("DEBUG: Auto-Join button clicked!")
+        self:Print(string.format("DEBUG: Group leader: %s", group.leader))
+        local success, errorMessage = pcall(function()
+            local playerName = UnitName("player")
+            local message = {
+                type = "INVITE_REQUEST",
+                requester = playerName,
+                timestamp = time()
+            }
+            self:Print("DEBUG: Sending invite request via AceComm to " .. group.leader)
+            self:SendCommMessage("GrouperAutoJoin", self:Serialize(message), "WHISPER", group.leader)
+            self:Print("DEBUG: AceComm invite request sent")
+        end)
+        if success then
+            self:Print(string.format("✓ Sent invite request to %s via AceComm", group.leader))
+        else
+            self:Print(string.format("✗ Failed to send invite request: %s", errorMessage or "Unknown error"))
+            -- Fallback: try with realm-stripped name
+            local strippedName = self:StripRealmName(group.leader)
+            if strippedName ~= group.leader then
+                self:Print(string.format("DEBUG: Trying with stripped name: %s", strippedName))
+                local success2, errorMessage2 = pcall(function()
+                    local playerName = UnitName("player")
+                    local message = {
+                        type = "INVITE_REQUEST",
+                        requester = playerName,
+                        timestamp = time()
+                    }
+                    self:SendCommMessage("GrouperAutoJoin", self:Serialize(message), "WHISPER", strippedName)
+                end)
+                if success2 then
+                    self:Print(string.format("✓ Sent invite request to %s via AceComm (stripped)", strippedName))
+                else
+                    self:Print(string.format("✗ Also failed with stripped name: %s", errorMessage2 or "Unknown error"))
+                    -- Final fallback: traditional whisper
+                    SendChatMessage("Hi! I'd like to join your group (sent via Grouper Auto-Join)", "WHISPER", nil, group.leader)
+                    self:Print("DEBUG: Used traditional whisper as final fallback")
                 end
             end
-        end)
-    else
-        inviteButton:SetText("Request Invite")
-        inviteButton:SetWidth(120)
-        inviteButton:SetCallback("OnClick", function()
-            local message = string.format("Hi! I'd like to join your group: %s", group.title)
-            
-            if self.db.profile.debug.enabled then
-                self:Print(string.format("DEBUG: Sending traditional invite request to %s", group.leader))
-            end
-            
-            SendChatMessage(message, "WHISPER", nil, group.leader)
-        end)
-    end
+        end
+    end)
     
     buttonGroup:AddChild(inviteButton)
     
@@ -3908,30 +3785,7 @@ function Grouper:SetupOptions()
                     },
                 },
             },
-            autoJoin = {
-                name = "Auto-Join",
-                type = "group",
-                order = 3,
-                args = {
-                    enabled = {
-                        name = "Enable Auto-Join",
-                        desc = "Enable the Auto-Join button for instant group invite requests",
-                        type = "toggle",
-                        set = function(info, val) self.db.profile.autoJoin.enabled = val end,
-                        get = function(info) return self.db.profile.autoJoin.enabled end,
-                        order = 1,
-                    },
-                    autoAccept = {
-                        name = "Auto-Accept Invites",
-                        desc = "Automatically accept group invites when received",
-                        type = "toggle",
-                        set = function(info, val) self.db.profile.autoJoin.autoAccept = val end,
-                        get = function(info) return self.db.profile.autoJoin.autoAccept end,
-                        disabled = function() return not self.db.profile.autoJoin.enabled end,
-                        order = 2,
-                    },
-                },
-            },
+            
         },
     }
     
