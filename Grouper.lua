@@ -1845,6 +1845,17 @@ function Grouper:OnAutoJoinRequest(prefix, message, distribution, sender)
         return
     end
     local requester = sender
+    -- Cache the playerInfo if present
+    if deserializedMessage.playerInfo and type(deserializedMessage.playerInfo) == "table" then
+        local info = deserializedMessage.playerInfo
+        -- Ensure lastSeen and version are set for cache compatibility
+        info.lastSeen = time()
+        info.version = deserializedMessage.version or ADDON_VERSION
+        self.players[requester] = info
+        if self.db.profile.debug.enabled then
+            self:Print(string.format("DEBUG: Cached playerInfo for %s from autojoin: %s | Class: %s | Race: %s | Level: %s | FullName: %s", requester, info.name or "", info.class or "", info.race or "", info.level or "", info.fullName or requester))
+        end
+    end
     if InviteUnit then
         InviteUnit(requester)
         self:Print(string.format("✓ Auto-invited %s via Grouper Auto-Join", requester))
@@ -3749,7 +3760,8 @@ function Grouper:CreateGroupFrame(group)
             local message = {
                 type = "INVITE_REQUEST",
                 requester = playerName,
-                timestamp = time()
+                timestamp = time(),
+                playerInfo = self.playerInfo -- Include cached local player data
             }
             self:Print("DEBUG: Sending invite request via AceComm to " .. group.leader)
             self:SendCommMessage("GrouperAutoJoin", self:Serialize(message), "WHISPER", group.leader)
@@ -3768,7 +3780,8 @@ function Grouper:CreateGroupFrame(group)
                     local message = {
                         type = "INVITE_REQUEST",
                         requester = playerName,
-                        timestamp = time()
+                        timestamp = time(),
+                        playerInfo = self.playerInfo -- Include cached local player data
                     }
                     self:SendCommMessage("GrouperAutoJoin", self:Serialize(message), "WHISPER", strippedName)
                 end)
@@ -3856,10 +3869,13 @@ end
 
 -- Register slash command to show current player's cached data (place at end of file)
 Grouper:RegisterChatCommand("groupercp", function()
-    local info = Grouper.playerInfo
-    if info then
-        Grouper:Print(string.format("Player Cache: Name: %s | Class: %s | Race: %s | Level: %s | FullName: %s", info.name or "", info.class or "", info.race or "", info.level or "", info.fullName or ""))
-    else
+    local cache = Grouper.players
+    local count = 0
+    for name, info in pairs(cache) do
+        Grouper:Print(string.format("Player Cache: Name: %s | Class: %s | Race: %s | Level: %s | FullName: %s", info.name or name, info.class or "", info.race or "", info.level or "", info.fullName or name))
+        count = count + 1
+    end
+    if count == 0 then
         Grouper:Print("No player data cached.")
     end
 end)
