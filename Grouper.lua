@@ -197,6 +197,21 @@ function Grouper:OnInitialize()
     self.players = {}
     self.multiPartMessages = {} -- Storage for incomplete multi-part messages
     self.grouperChannelNumber = nil -- Cache for our Grouper channel number
+
+    -- Cache local player info at startup
+    local name = UnitName("player")
+    local class = UnitClass("player")
+    local race = UnitRace("player")
+    local level = UnitLevel("player")
+    local realm = GetRealmName() or ""
+    local fullName = name .. "-" .. realm
+    self.playerInfo = {
+        name = name,
+        class = class,
+        race = race,
+        level = level,
+        fullName = fullName
+    }
     
     -- Register chat commands
     self:RegisterChatCommand("grouper", "SlashCommand")
@@ -3535,6 +3550,12 @@ function Grouper:CreateGroupManageFrame(group)
     membersGroup:SetTitle("Party Members")
     membersGroup:SetFullWidth(true)
     membersGroup:SetLayout("Flow")
+    -- WoW class colors
+    local CLASS_COLORS = {
+        WARRIOR = "C79C6E", PALADIN = "F58CBA", HUNTER = "ABD473", ROGUE = "FFF569", PRIEST = "FFFFFF",
+        DEATHKNIGHT = "C41F3B", SHAMAN = "0070DE", MAGE = "69CCF0", WARLOCK = "9482C9", DRUID = "FF7D0A",
+        MONK = "00FF96", DEMONHUNTER = "A330C9", EVOKER = "33937F"
+    }
     for i = 1, 5 do
         local label = AceGUI:Create("Label")
         label:SetWidth(250)
@@ -3551,7 +3572,8 @@ function Grouper:CreateGroupManageFrame(group)
             if not IsInRaid() and GetRealmName() then
                 fullName = name .. "-" .. GetRealmName()
             end
-            label:SetText(string.format("%s | %s | %d", fullName, class or "?", level or 0))
+            local color = CLASS_COLORS[string.upper(class or "PRIEST")] or "FFFFFF"
+            label:SetText(string.format("|cff%s%s|r | %s | %d", color, fullName, class or "?", level or 0))
         else
             label:SetText("(empty)")
         end
