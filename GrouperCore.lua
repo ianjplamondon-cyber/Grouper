@@ -1,6 +1,94 @@
 Grouper = LibStub("AceAddon-3.0"):NewAddon("Grouper", "AceConsole-3.0", "AceEvent-3.0", "AceTimer-3.0", "AceComm-3.0", "AceSerializer-3.0")
 AceGUI = LibStub("AceGUI-3.0")
--- ...existing code...
+
+function Grouper:OnEnable()
+    -- Register events
+    self:RegisterEvent("PLAYER_ENTERING_WORLD", "OnPlayerEnteringWorld")
+    self:RegisterEvent("PARTY_INVITE_REQUEST", "OnPartyInviteRequest")
+    self:RegisterEvent("PARTY_MEMBER_ENABLE", "OnPartyChanged")
+    self:RegisterEvent("PARTY_MEMBER_DISABLE", "OnPartyChanged")
+    self:RegisterEvent("PARTY_LEADER_CHANGED", "OnPartyChanged")
+    self:RegisterEvent("RAID_ROSTER_UPDATE", "OnPartyChanged")
+    self:RegisterEvent("CHAT_MSG_CHANNEL_JOIN", "OnChannelJoin")
+    self:RegisterEvent("CHAT_MSG_CHANNEL_LEAVE", "OnChannelLeave")
+    self:RegisterEvent("CHAT_MSG_CHANNEL", "OnChannelMessage")
+
+    -- Register AceComm message handlers
+    self:RegisterComm("GRPR_GROUP", "OnCommReceived")       -- Compact GROUP_UPDATE via channel
+    self:RegisterComm("GRPR_GRP_UPD", "OnCommReceived")     -- Serialized GROUP_UPDATE via whisper
+    self:RegisterComm("GRPR_GRP_RMV", "OnCommReceived")     -- GROUP_REMOVE messages
+    self:RegisterComm("GRPR_CHUNK_REQ", "OnCommReceived")   -- Chunk requests
+    self:RegisterComm("GRPR_CHUNK_RES", "OnCommReceived")   -- Chunk responses
+    self:RegisterComm("GROUPER_TEST", "OnCommReceived")     -- Test messages
+    self:RegisterComm("GrouperAutoJoin", "OnAutoJoinRequest") -- Auto-join invite requests
+
+    if self.db and self.db.profile and self.db.profile.debug and self.db.profile.debug.enabled then
+        self:Print("DEBUG: OnEnable - Registered events and AceComm prefixes for Grouper communication.")
+    end
+end
+
+-- Classic Era API Compatibility Functions (scoped to Grouper)
+function Grouper:GetGroupSize()
+    if GetNumRaidMembers and GetNumRaidMembers() > 0 then
+        return GetNumRaidMembers()
+    elseif GetNumPartyMembers and GetNumPartyMembers() > 0 then
+        return GetNumPartyMembers()
+    else
+        return 0 -- Solo
+    end
+end
+
+function Grouper:IsInGroup()
+    return self:GetGroupSize() > 0
+end
+
+function Grouper:IsInRaidGroup()
+    return GetNumRaidMembers and GetNumRaidMembers() > 0 or false
+end
+
+function Grouper:IsInPartyGroup()
+    return GetNumPartyMembers and GetNumPartyMembers() > 0 or false
+end
+
+function Grouper:IsGroupLeader()
+    if self:IsInRaidGroup() then
+        return IsRaidLeader and IsRaidLeader() or false
+    elseif self:IsInPartyGroup() then
+        return IsPartyLeader and IsPartyLeader() or false
+    else
+        return false
+    end
+end
+
+-- Handles group/raid changes and refreshes UI
+function Grouper:OnPartyChanged(event)
+    if self.db and self.db.profile and self.db.profile.debug and self.db.profile.debug.enabled then
+        self:Print(string.format("DEBUG: Group changed event: %s", event or "unknown"))
+    end
+
+    -- Repopulate group data using leader's cache logic
+    if self:IsGroupLeader() and self.groups then
+        for _, group in pairs(self.groups) do
+            if group.leader == UnitName("player") then
+                self:CreateGroup({
+                    title = group.title,
+                    description = group.description,
+                    type = group.type,
+                    minLevel = group.minLevel,
+                    maxLevel = group.maxLevel,
+                    currentSize = group.currentSize,
+                    maxSize = group.maxSize,
+                    location = group.location,
+                    dungeons = group.dungeons
+                })
+            end
+        end
+    end
+    -- Refresh UI if open
+    if self.mainFrame and self.mainFrame:IsShown() then
+        self:RefreshGroupList()
+    end
+end
 
 -- Register CHAT_MSG_SYSTEM event to handle party join system messages (after Grouper is initialized)
 function Grouper:OnChatMsgSystem(event, text)
@@ -14,7 +102,7 @@ function Grouper:OnChatMsgSystem(event, text)
             self:Print("DEBUG: Detected party join by " .. joinedName)
         end
         -- Repopulate group data using leader's cache logic
-        if IsGroupLeader() and self.groups then
+        if self:IsGroupLeader() and self.groups then
             for _, group in pairs(self.groups) do
                 if group.leader == UnitName("player") then
                     self:CreateGroup({
@@ -122,8 +210,10 @@ function Grouper:OnInitialize()
     -- Initialize database
     self.db = AceDB:New("GrouperDB", defaults, true)
 
-    -- Initialize storage
-    self.groups = {}
+    -- Only initialize self.groups if it doesn't already exist
+    if not self.groups then
+        self.groups = {}
+    end
     self.players = {}
     self.multiPartMessages = {} -- Storage for incomplete multi-part messages
     self.grouperChannelNumber = nil -- Cache for our Grouper channel number
@@ -160,30 +250,19 @@ function Grouper:OnInitialize()
     self:SetupOptions()
 
     self:Print("Loaded! Type /grouper to open the group finder.")
-end
 
-function Grouper:OnEnable()
-    -- Register events
+    -- Register events and AceComm handlers for group/channel changes and communication
     self:RegisterEvent("PLAYER_ENTERING_WORLD", "OnPlayerEnteringWorld")
-    
-    -- Classic Era event names for group changes
-    self:RegisterEvent("PARTY_INVITE_REQUEST", "OnPartyChanged")
+    self:RegisterEvent("PARTY_INVITE_REQUEST", "OnPartyInviteRequest")
     self:RegisterEvent("PARTY_MEMBER_ENABLE", "OnPartyChanged")
     self:RegisterEvent("PARTY_MEMBER_DISABLE", "OnPartyChanged")
     self:RegisterEvent("PARTY_LEADER_CHANGED", "OnPartyChanged")
     self:RegisterEvent("RAID_ROSTER_UPDATE", "OnPartyChanged")
-    
     self:RegisterEvent("CHAT_MSG_CHANNEL_JOIN", "OnChannelJoin")
     self:RegisterEvent("CHAT_MSG_CHANNEL_LEAVE", "OnChannelLeave")
-    
-    -- Register for party invite requests to handle auto-accept functionality
-    self:RegisterEvent("PARTY_INVITE_REQUEST", "OnPartyInviteRequest")
-    
-    -- Register for channel messages to receive our protocol messages (keeping for backward compatibility)
     self:RegisterEvent("CHAT_MSG_CHANNEL", "OnChannelMessage")
-    -- Note: WHISPER messages are now handled by AceComm automatically through OnCommReceived
-    
-    -- Register AceComm message handlers for new communication system (16 char limit)
+
+    -- Register AceComm message handlers
     self:RegisterComm("GRPR_GROUP", "OnCommReceived")       -- Compact GROUP_UPDATE via channel
     self:RegisterComm("GRPR_GRP_UPD", "OnCommReceived")     -- Serialized GROUP_UPDATE via whisper
     self:RegisterComm("GRPR_GRP_RMV", "OnCommReceived")     -- GROUP_REMOVE messages
@@ -191,34 +270,8 @@ function Grouper:OnEnable()
     self:RegisterComm("GRPR_CHUNK_RES", "OnCommReceived")   -- Chunk responses
     self:RegisterComm("GROUPER_TEST", "OnCommReceived")     -- Test messages
     self:RegisterComm("GrouperAutoJoin", "OnAutoJoinRequest") -- Auto-join invite requests
-    
-    if self.db.profile.debug.enabled then
-        self:Print("DEBUG: 📡 Registered AceComm prefixes: GRPR_GROUP, GRPR_GRP_UPD, GRPR_GRP_RMV, GRPR_CHUNK_REQ, GRPR_CHUNK_RES, GROUPER_TEST")
-    end
-    
-    -- Check if already in channel, but don't auto-join
-    self:ScheduleTimer("CheckInitialChannelStatus", 3)
-    
-    -- Cancel any existing repeating timers to prevent conflicts after reload
-    -- (Don't cancel all timers as it would cancel the CheckInitialChannelStatus timer above)
-    if self.presenceTimer then
-        self:CancelTimer(self.presenceTimer)
-    end
-    if self.cleanupTimer then
-        self:CancelTimer(self.cleanupTimer)
-    end
-    if self.chunksCleanupTimer then
-        self:CancelTimer(self.chunksCleanupTimer)
-    end
-    
-    -- Start periodic tasks and store timer handles
-    self.cleanupTimer = self:ScheduleRepeatingTimer("CleanupOldGroups", 300) -- 5 minutes
-    -- Disable presence timer to prevent protected function issues: self.presenceTimer = self:ScheduleRepeatingTimer("BroadcastPresence", 600)
-    self.chunksCleanupTimer = self:ScheduleRepeatingTimer("CleanupOldAceCommChunks", 120) -- Clean up incomplete AceComm chunks every 2 minutes
-    
-    -- Auto-join is always enabled
-    self:ScheduleTimer(function()
-        self:Print("Auto-Join enabled: Use Auto-Join buttons for instant invite requests")
-    end, 2)
-end
 
+    if self.db.profile.debug.enabled then
+        self:Print("DEBUG: Registered events and AceComm prefixes for Grouper communication.")
+    end
+end

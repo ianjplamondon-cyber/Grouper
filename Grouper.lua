@@ -1,3 +1,20 @@
+-- Utility to get full player name with realm, always using exact realm format
+local function GetFullPlayerName(name)
+    if not name then return "" end
+    local realm = GetRealmName()
+    -- Remove spaces from realm name for consistency
+    realm = realm:gsub("%s", "")
+    if name:find("-") then
+        local base, r = name:match("^(.-)%-(.+)$")
+        if base and r then
+            r = r:gsub("%s", "")
+            return base .. "-" .. r
+        end
+        return name
+    end
+    return name .. "-" .. realm
+end
+
 function Grouper:OnDisable()
     -- Cancel specific timers when the addon is disabled
     if self.presenceTimer then
@@ -125,7 +142,7 @@ function Grouper:CreateGroup(groupData)
     
     local group = {
         id = self:GenerateGroupID(),
-        leader = UnitName("player"),
+        leader = GetFullPlayerName(UnitName("player")),
         title = groupData.title or "Untitled Group",
         description = groupData.description or "",
         type = groupData.type or "other",
@@ -149,8 +166,11 @@ function Grouper:CreateGroup(groupData)
     
     self.groups[group.id] = group
     self:SendComm("GROUP_UPDATE", group)
-    
     self:Print(string.format("Created group: %s", group.title))
+    -- Immediately refresh the UI so the new group appears
+    if self.mainFrame and self.mainFrame:IsShown() then
+        self:RefreshGroupList()
+    end
     return group
 end
 
@@ -185,16 +205,6 @@ function Grouper:RemoveGroup(groupId)
     return true
 end
 
--- Helper function to strip realm name from player names for comparison
-function Grouper:StripRealmName(playerName)
-    if not playerName then
-        return playerName
-    end
-    
-    local name = strsplit("-", playerName)
-    return name
-end
-
 -- Helper function to get table keys for debugging
 function Grouper:GetTableKeys(tbl)
     local keys = {}
@@ -207,9 +217,14 @@ function Grouper:GetTableKeys(tbl)
 end
 
 function Grouper:HandleGroupUpdate(groupData, sender)
-    if self.db.profile.debug.enabled then
-        self:Print(string.format("DEBUG: HandleGroupUpdate called - sender: %s, leader: %s", sender, groupData and groupData.leader or "nil"))
-        self:Print(string.format("DEBUG: Group ID: %s, Title: %s", groupData and groupData.id or "nil", groupData and groupData.title or "nil"))
+    self:Print(string.rep("-", 40))
+    self:Print("DEBUG: [HandleGroupUpdate] called")
+    self:Print(string.format("DEBUG: sender: %s, leader: %s", sender, groupData and groupData.leader or "nil"))
+    self:Print(string.format("DEBUG: Group ID: %s, Title: %s", groupData and groupData.id or "nil", groupData and groupData.title or "nil"))
+    if groupData then
+        for k, v in pairs(groupData) do
+            self:Print(string.format("DEBUG: groupData.%s = %s", k, tostring(v)))
+        end
     end
     
     -- Add safety check for nil groupData
@@ -220,15 +235,11 @@ function Grouper:HandleGroupUpdate(groupData, sender)
         return
     end
     
-    -- Strip realm names for comparison
-    local senderName = self:StripRealmName(sender)
-    local leaderName = self:StripRealmName(groupData.leader)
-    
     if self.db.profile.debug.enabled then
-        self:Print(string.format("DEBUG: Comparing stripped names - sender: %s, leader: %s", senderName, leaderName))
+        self:Print(string.format("DEBUG: Comparing full names - sender: %s, leader: %s", sender, groupData.leader))
     end
     
-    if leaderName == senderName then
+    if GetFullPlayerName(groupData.leader) == GetFullPlayerName(sender) then
         self.groups[groupData.id] = groupData
         
         if self.db.profile.debug.enabled then
@@ -255,7 +266,7 @@ function Grouper:HandleGroupUpdate(groupData, sender)
         end
     else
         if self.db.profile.debug.enabled then
-            self:Print(string.format("DEBUG: Rejecting group update - sender mismatch (stripped: %s vs %s)", senderName, leaderName))
+            self:Print(string.format("DEBUG: Rejecting group update - sender mismatch (full: %s vs %s)", sender, groupData.leader))
         end
     end
 end
@@ -1033,7 +1044,7 @@ function Grouper:CreateManageTab(container)
     
     local myGroups = {}
     for _, group in pairs(self.groups) do
-        if group.leader == UnitName("player") then
+        if group.leader == GetFullPlayerName(UnitName("player")) then
             table.insert(myGroups, group)
         end
     end
@@ -1079,22 +1090,8 @@ function Grouper:CreateGroupManageFrame(group)
     }
     -- Always use Grouper.players cache for party member info
     local partyMembers = {}
-    if IsInRaidGroup() then
-        for i = 1, GetNumRaidMembers() do
-            local name = UnitName("raid" .. tostring(i))
-            if name and type(name) == "string" and name ~= "" then table.insert(partyMembers, name) end
-        end
-    elseif IsInPartyGroup() then
-        for i = 1, GetNumPartyMembers() do
-            local name = UnitName("party" .. tostring(i))
-            if name and type(name) == "string" and name ~= "" then table.insert(partyMembers, name) end
-        end
-        local selfName = UnitName("player")
-        if selfName and type(selfName) == "string" and selfName ~= "" then table.insert(partyMembers, selfName) end
-    else
-        local selfName = UnitName("player")
-        if selfName and type(selfName) == "string" and selfName ~= "" then table.insert(partyMembers, selfName) end
-    end
+    local selfName = UnitName("player")
+    if selfName and type(selfName) == "string" and selfName ~= "" then table.insert(partyMembers, selfName) end
 
     -- Use Grouper.players cache for member info
     for i = 1, 5 do
@@ -1146,15 +1143,15 @@ function Grouper:CreateGroupManageFrame(group)
 end
 
 function Grouper:RefreshGroupList()
+    self:Print(string.rep("-", 40))
+    self:Print("DEBUG: [RefreshGroupList] called")
     if not self.groupsScrollFrame then
+        self:Print("DEBUG: [RefreshGroupList] groupsScrollFrame is nil")
         return
     end
-    
-    if self.db.profile.debug.enabled then
-        self:Print(string.format("DEBUG: 🔄 RefreshGroupList called. Groups in memory:"))
-        for id, group in pairs(self.groups) do
-            self:Print(string.format("DEBUG:   - %s: %s (leader: %s)", id, group.title, group.leader))
-        end
+    self:Print("DEBUG: 🔄 Groups in memory:")
+    for id, group in pairs(self.groups) do
+        self:Print(string.format("DEBUG:   - %s: %s (leader: %s)", id, group.title, group.leader))
     end
     
     self.groupsScrollFrame:ReleaseChildren()
