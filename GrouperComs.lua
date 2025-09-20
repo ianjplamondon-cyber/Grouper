@@ -168,30 +168,19 @@ function Grouper:SendComm(messageType, data, distribution, target, priority)
     
     -- For WHISPER and other distributions, use standard AceComm which works fine
     if self.db.profile.debug.enabled then
-        self:Print(string.format("DEBUG: ⚡ SendComm called with messageType='%s', distribution='%s'", messageType, distribution or "default"))
+        self:Print(string.format("DEBUG: ⚡ SendComm called with messageType='%s', distribution='%s', target='%s'", messageType, distribution or "default", tostring(target)))
+        if messageType == "AUTOJOIN" and type(data) == "string" then
+            self:Print(string.format("DEBUG: AUTOJOIN payload: %s", data))
+        end
     end
-    
-    local message = {
-        type = messageType,
-        sender = UnitName("player"),
-        timestamp = time(),
-        version = ADDON_VERSION,
-        data = data
-    }
-    
-    if self.db.profile.debug.enabled then
-        self:Print(string.format("DEBUG: Sending %s message via AceComm", messageType))
-    end
-    
-    -- Use AceComm for all communication with appropriate priority
+
     local commPriority = priority or "NORMAL"
     if messageType == "TEST" then
-        commPriority = "ALERT"  -- Use ALERT priority for immediate test message delivery
+        commPriority = "ALERT"
     end
-    local distributionType = distribution or "CHANNEL"  -- Default to CHANNEL for server-wide communication
+    local distributionType = distribution or "CHANNEL"
     local commTarget = target
-    
-    -- For server-wide broadcasts, use CHANNEL distribution with the Grouper channel number
+
     if distributionType == "CHANNEL" then
         local channelIndex = self:GetGrouperChannelIndex()
         if self.db.profile.debug.enabled then
@@ -203,21 +192,37 @@ function Grouper:SendComm(messageType, data, distribution, target, priority)
             end
             return false
         end
-        commTarget = channelIndex  -- Use the channel number for AceComm
+        commTarget = channelIndex
     end
-    
+
     local success, errorMsg = pcall(function()
         local prefix = "GRPR_" .. messageType
-        -- Shorten prefixes to fit 16-char limit
         if messageType == "GROUP_UPDATE" then
             prefix = "GRPR_GRP_UPD"
         elseif messageType == "GROUP_REMOVE" then
             prefix = "GRPR_GRP_RMV"
         end
         if self.db.profile.debug.enabled then
-            self:Print(string.format("DEBUG: ⚡ Sending AceComm with prefix='%s' to channel %d", prefix, commTarget))
+            if distributionType == "WHISPER" then
+                self:Print(string.format("DEBUG: ⚡ Sending AceComm with prefix='%s' via WHISPER to '%s'", prefix, tostring(commTarget)))
+            else
+                self:Print(string.format("DEBUG: ⚡ Sending AceComm with prefix='%s' to channel %d", prefix, commTarget))
+            end
         end
-        self:SendCommMessage(prefix, self:Serialize(message), distributionType, commTarget, commPriority)
+        if messageType == "AUTOJOIN" and type(data) == "string" then
+            self:SendCommMessage(prefix, data, distributionType, commTarget, commPriority)
+        else
+            local message = {
+                type = messageType,
+                sender = UnitName("player"),
+                timestamp = time(),
+                version = ADDON_VERSION
+            }
+            if data ~= nil then
+                message.data = data
+            end
+            self:SendCommMessage(prefix, self:Serialize(message), distributionType, commTarget, commPriority)
+        end
     end)
     
     if success then
@@ -1184,6 +1189,9 @@ end
 
 -- AceComm message handler
 function Grouper:OnCommReceived(prefix, message, distribution, sender)
+    self:Print("DEBUG: [RECEIVER] OnCommReceived fired!")
+    self:Print(string.format("DEBUG: [RECEIVER] prefix='%s', sender='%s', distribution='%s', message='%s'", prefix, sender, distribution, tostring(message)))
+    self:Print(string.format("DEBUG: [GLOBAL] OnCommReceived - prefix: %s, sender: %s, distribution: %s", prefix, sender, distribution))
     if self.db.profile.debug.enabled then
         self:Print(string.format("DEBUG: OnCommReceived called - prefix: %s, sender: %s, distribution: %s", prefix, sender, distribution))
     end
@@ -1222,7 +1230,13 @@ function Grouper:OnCommReceived(prefix, message, distribution, sender)
     
     -- Map short prefixes to full message types
     local messageType
-    if prefix == "GRPR_GRP_UPD" then
+    if prefix == "GRPR_AUTOJOIN" then
+        if self.db.profile.debug.enabled then
+            self:Print("DEBUG: Routing GRPR_AUTOJOIN to OnAutoJoinRequest")
+        end
+        self:OnAutoJoinRequest(prefix, message, distribution, sender)
+        return
+    elseif prefix == "GRPR_GRP_UPD" then
         messageType = "GROUP_UPDATE"
         if self.db.profile.debug.enabled then
             self:Print(string.format("DEBUG: ✓ RECEIVED GRPR_GRP_UPD from %s, deserializing", sender))
@@ -1402,40 +1416,61 @@ end
 
 -- Handle Auto-Join invite requests via AceComm
 function Grouper:OnAutoJoinRequest(prefix, message, distribution, sender)
+    self:Print("DEBUG: [RECEIVER] OnAutoJoinRequest fired!")
+    self:Print(string.format("DEBUG: [RECEIVER] prefix='%s', sender='%s', distribution='%s', message='%s'", prefix, sender, distribution, tostring(message)))
     self:Print(string.format("DEBUG: OnAutoJoinRequest called - prefix: %s, sender: %s, distribution: %s", prefix, sender, distribution))
-    
-    -- Always auto-accept: deserialize and invite
-    local deserializeSuccess, deserializedMessage = self:Deserialize(message)
-    if not deserializeSuccess or not deserializedMessage then
-        self:Print(string.format("DEBUG: Failed to deserialize auto-join request from %s - success: %s", sender, tostring(deserializeSuccess)))
+    self:Print(string.format("DEBUG: Raw auto-join payload: %s", tostring(message)))
+    local AceSerializer = LibStub("AceSerializer-3.0")
+    local success, inviteRequest = AceSerializer:Deserialize(message)
+    if not success or type(inviteRequest) ~= "table" or inviteRequest.type ~= "INVITE_REQUEST" then
+        self:Print("DEBUG: Invalid auto-join AceSerializer payload format")
         return
     end
-    if deserializedMessage.type ~= "INVITE_REQUEST" or not deserializedMessage.requester then
-        self:Print(string.format("DEBUG: Invalid auto-join request format - type: %s, requester: %s", tostring(deserializedMessage.type), tostring(deserializedMessage.requester)))
-        return
+    self:Print("DEBUG: Deserialized inviteRequest table:")
+    for k, v in pairs(inviteRequest) do
+        self:Print("  " .. k .. "=" .. tostring(v))
     end
-    local requester = sender
-    -- Cache the playerInfo if present
-    if deserializedMessage.playerInfo and type(deserializedMessage.playerInfo) == "table" then
-        local info = deserializedMessage.playerInfo
-        -- Ensure lastSeen and version are set for cache compatibility
-        info.lastSeen = time()
-        info.version = deserializedMessage.version or ADDON_VERSION
-        self.players[requester] = info
+    -- Cache the playerInfo
+    local info = {
+        name = inviteRequest.requester,
+        race = inviteRequest.race,
+        class = inviteRequest.class,
+        level = inviteRequest.level,
+        fullName = inviteRequest.fullName,
+        lastSeen = inviteRequest.timestamp,
+        version = ADDON_VERSION
+    }
+    self.players[inviteRequest.requester] = info
+    if self.db.profile.debug.enabled then
+        self:Print(string.format("DEBUG: Cached playerInfo for %s from autojoin: Class: %s | Race: %s | Level: %s | FullName: %s", info.name or "", info.class or "", info.race or "", info.level or "", info.fullName or inviteRequest.requester))
+    end
+    -- Refresh party frame if open
+    if self.mainFrame and self.mainFrame:IsShown() then
+        self:RefreshGroupList()
+    end
+    local inviteName = inviteRequest.fullName or inviteRequest.requester
+    if self.db.profile.debug.enabled then
+        self:Print(string.format("DEBUG: InviteUnit will use: requester='%s', fullName='%s', chosen='%s'", tostring(inviteRequest.requester), tostring(inviteRequest.fullName), tostring(inviteName)))
+    end
+    if type(inviteName) == "string" and inviteName ~= "" then
         if self.db.profile.debug.enabled then
-            self:Print(string.format("DEBUG: Cached playerInfo for %s from autojoin: %s | Class: %s | Race: %s | Level: %s | FullName: %s", requester, info.name or "", info.class or "", info.race or "", info.level or "", info.fullName or requester))
+            self:Print(string.format("DEBUG: About to call InviteUnit('%s')", inviteName))
         end
-        -- Refresh party frame if open
-        if self.mainFrame and self.mainFrame:IsShown() then
-            self:RefreshGroupList()
+        local inviteSuccess, inviteError = pcall(function()
+            InviteUnit(inviteName)
+        end)
+        if self.db.profile.debug.enabled then
+            self:Print("DEBUG: Returned from InviteUnit")
+            if inviteSuccess then
+                self:Print(string.format("✓ Auto-invited %s via Grouper Auto-Join", inviteName))
+            else
+                self:Print(string.format("ERROR: InviteUnit failed for '%s': %s", tostring(inviteName), tostring(inviteError)))
+            end
         end
-    end
-    if InviteUnit then
-        InviteUnit(requester)
-        self:Print(string.format("✓ Auto-invited %s via Grouper Auto-Join", requester))
     else
-        self:Print("ERROR: InviteUnit function not available")
-        return -- Exit here after showing popup
+        if self.db.profile.debug.enabled then
+            self:Print("ERROR: Invalid inviteName for InviteUnit")
+        end
     end
 end
 
@@ -1822,16 +1857,6 @@ function Grouper:BroadcastPresence()
             end
             
             -- Get current stack trace if possible
-
-
-
-
-
-
-
-
-
-
             pcall(function()
                 local stack = debugstack(2, 5, 5) -- Get limited stack trace
                 if stack then

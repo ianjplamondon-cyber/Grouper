@@ -1,3 +1,21 @@
+-- Slash command to test AceComm WHISPER delivery
+SLASH_GROUPERTESTCOMM1 = "/groupertestcomm"
+function SlashCmdList.GROUPERTESTCOMM(msg)
+    local target = msg:match("^%s*(.-)%s*$")
+    if not target or target == "" then
+        Grouper:Print("Usage: /grouper testcomm <player>")
+        return
+    end
+    Grouper:Print("DEBUG: Sending test AceComm WHISPER to " .. target)
+    local testMessage = {
+        type = "TEST",
+        sender = UnitName("player"),
+        timestamp = time(),
+        version = Grouper.ADDON_VERSION or "unknown",
+        data = { text = "Hello from Grouper testcomm!" }
+    }
+    Grouper:SendComm("TEST", testMessage, "WHISPER", target, "ALERT")
+end
 -- Utility to get full player name with realm, always using exact realm format
 local function GetFullPlayerName(name)
     if not name then return "" end
@@ -1068,13 +1086,13 @@ function Grouper:CreateManageTab(container)
         scrollFrame:AddChild(label)
     else
         for _, group in ipairs(myGroups) do
-            local groupFrame = self:CreateGroupManageFrame(group)
+            local groupFrame = self:CreateGroupManageFrame(group, "manage")
             scrollFrame:AddChild(groupFrame)
         end
     end
 end
 
-function Grouper:CreateGroupManageFrame(group)
+function Grouper:CreateGroupManageFrame(group, tabType)
     local frame = AceGUI:Create("InlineGroup")
     frame:SetTitle(group.title)
     frame:SetFullWidth(true)
@@ -1132,29 +1150,77 @@ function Grouper:CreateGroupManageFrame(group)
     buttonGroup:SetFullWidth(true)
     frame:AddChild(buttonGroup)
 
-    local editButton = AceGUI:Create("Button")
-    editButton:SetText("Edit")
-    editButton:SetWidth(100)
-    editButton:SetCallback("OnClick", function()
-        self:ShowEditGroupDialog(group)
-    end)
-    buttonGroup:AddChild(editButton)
+    if tabType == "browse" then
+        local whisperButton = AceGUI:Create("Button")
+        whisperButton:SetText("Whisper Leader")
+        whisperButton:SetWidth(120)
+        whisperButton:SetCallback("OnClick", function()
+            local whisperText = "/tell " .. group.leader .. " "
+            if ChatFrame_OpenChat then
+                ChatFrame_OpenChat(whisperText)
+            elseif DEFAULT_CHAT_FRAME and DEFAULT_CHAT_FRAME.editBox then
+                local editBox = DEFAULT_CHAT_FRAME.editBox
+                if editBox then
+                    editBox:SetText(whisperText)
+                    editBox:Show()
+                    editBox:SetFocus()
+                end
+            end
+        end)
+        buttonGroup:AddChild(whisperButton)
 
-    local removeButton = AceGUI:Create("Button")
-    removeButton:SetText("Remove")
-    removeButton:SetWidth(100)
-    removeButton:SetCallback("OnClick", function()
-        self:RemoveGroup(group.id)
-        if self.tabGroup then
-            self.tabGroup:SelectTab("manage") -- Refresh the tab
-        end
-    end)
-    buttonGroup:AddChild(removeButton)
+        local autoJoinButton = AceGUI:Create("Button")
+        autoJoinButton:SetText("Auto-Join")
+        autoJoinButton:SetWidth(120)
+        autoJoinButton:SetCallback("OnClick", function()
+            self:Print("DEBUG: Auto-Join button clicked!")
+            self:Print(string.format("DEBUG: Group leader: %s", group.leader))
+            local playerName = UnitName("player")
+            -- Build a string payload: "INVITE_REQUEST|requester|timestamp|race|class|level|fullName"
+            local inviteRequest = {
+                type = "INVITE_REQUEST",
+                requester = tostring(playerName),
+                timestamp = time(),
+                race = tostring(self.playerInfo.race or ""),
+                class = tostring(self.playerInfo.class or ""),
+                level = tonumber(self.playerInfo.level) or 0,
+                fullName = tostring(self.playerInfo.fullName or playerName)
+            }
+            self:Print("DEBUG: InviteRequest table:")
+            for k, v in pairs(inviteRequest) do
+                self:Print("  " .. k .. "=" .. tostring(v))
+            end
+            local AceSerializer = LibStub("AceSerializer-3.0")
+            local payload = AceSerializer:Serialize(inviteRequest)
+            self:Print("DEBUG: Sending invite request via AceComm to " .. group.leader)
+            self:SendComm("AUTOJOIN", payload, "WHISPER", group.leader)
+        end)
+        buttonGroup:AddChild(autoJoinButton)
+    else
+        local editButton = AceGUI:Create("Button")
+        editButton:SetText("Edit")
+        editButton:SetWidth(100)
+        editButton:SetCallback("OnClick", function()
+            self:ShowEditGroupDialog(group)
+        end)
+        buttonGroup:AddChild(editButton)
+
+        local removeButton = AceGUI:Create("Button")
+        removeButton:SetText("Remove")
+        removeButton:SetWidth(100)
+        removeButton:SetCallback("OnClick", function()
+            self:RemoveGroup(group.id)
+            if self.tabGroup then
+                self.tabGroup:SelectTab("manage")
+            end
+        end)
+        buttonGroup:AddChild(removeButton)
+    end
 
     return frame
 end
 
-function Grouper:RefreshGroupList()
+function Grouper:RefreshGroupList(tabType)
     self:Print(string.rep("-", 40))
     self:Print("DEBUG: [RefreshGroupList] called")
     if not self.groupsScrollFrame then
@@ -1165,11 +1231,8 @@ function Grouper:RefreshGroupList()
     for id, group in pairs(self.groups) do
         self:Print(string.format("DEBUG:   - %s: %s (leader: %s)", id, group.title, group.leader))
     end
-    
     self.groupsScrollFrame:ReleaseChildren()
-    
     local filteredGroups = self:GetFilteredGroups()
-    
     if #filteredGroups == 0 then
         local label = AceGUI:Create("Label")
         label:SetText("No groups found matching your filters.")
@@ -1177,9 +1240,8 @@ function Grouper:RefreshGroupList()
         self.groupsScrollFrame:AddChild(label)
         return
     end
-    
     for _, group in ipairs(filteredGroups) do
-        local groupFrame = self:CreateGroupManageFrame(group)
+        local groupFrame = self:CreateGroupManageFrame(group, tabType or "browse")
         self.groupsScrollFrame:AddChild(groupFrame)
     end
 end
@@ -1287,48 +1349,24 @@ function Grouper:CreateGroupFrame(group)
     inviteButton:SetText("Auto-Join")
     inviteButton:SetWidth(120)
     inviteButton:SetCallback("OnClick", function()
-        self:Print("DEBUG: Auto-Join button clicked!")
+        local playerName = UnitName("player")
+        self:Print(string.format("DEBUG: Auto-Join button clicked! cached race='%s', cached class='%s'", tostring(self.playerInfo.race), tostring(self.playerInfo.class)))
         self:Print(string.format("DEBUG: Group leader: %s", group.leader))
-        local success, errorMessage = pcall(function()
-            local playerName = UnitName("player")
-            local message = {
-                type = "INVITE_REQUEST",
-                requester = playerName,
-                timestamp = time(),
-                playerInfo = self.playerInfo -- Include cached local player data
-            }
-            self:Print("DEBUG: Sending invite request via AceComm to " .. group.leader)
-            self:SendCommMessage("GrouperAutoJoin", self:Serialize(message), "WHISPER", group.leader)
-            self:Print("DEBUG: AceComm invite request sent")
-        end)
-        if success then
-            self:Print(string.format("✓ Sent invite request to %s via AceComm", group.leader))
-        else
-            self:Print(string.format("✗ Failed to send invite request: %s", errorMessage or "Unknown error"))
-            -- Fallback: try with realm-stripped name
-            local strippedName = self:StripRealmName(group.leader)
-            if strippedName ~= group.leader then
-                self:Print(string.format("DEBUG: Trying with stripped name: %s", strippedName))
-                local success2, errorMessage2 = pcall(function()
-                    local playerName = UnitName("player")
-                    local message = {
-                        type = "INVITE_REQUEST",
-                        requester = playerName,
-                        timestamp = time(),
-                        playerInfo = self.playerInfo -- Include cached local player data
-                    }
-                    self:SendCommMessage("GrouperAutoJoin", self:Serialize(message), "WHISPER", strippedName)
-                end)
-                if success2 then
-                    self:Print(string.format("✓ Sent invite request to %s via AceComm (stripped)", strippedName))
-                else
-                    self:Print(string.format("✗ Also failed with stripped name: %s", errorMessage2 or "Unknown error"))
-                    -- Final fallback: traditional whisper
-                    SendChatMessage("Hi! I'd like to join your group (sent via Grouper Auto-Join)", "WHISPER", nil, group.leader)
-                    self:Print("DEBUG: Used traditional whisper as final fallback")
-                end
-            end
-        end
+        -- Build a string payload: "INVITE_REQUEST|requester|timestamp|race|class|level|fullName"
+        local race = tostring(self.playerInfo.race or "")
+        local class = tostring(self.playerInfo.class or "")
+        local level = tonumber(self.playerInfo.level or 0)
+        local fullName = tostring(self.playerInfo.fullName or playerName)
+        local payload = string.format("INVITE_REQUEST|%s|%d|%s|%s|%d|%s",
+            tostring(playerName),
+            tonumber(time()),
+            tostring(race),
+            tostring(class),
+            tonumber(level),
+            tostring(fullName)
+        )
+        self:Print("DEBUG: Sending invite request via AceComm to " .. group.leader)
+        self:SendComm("AUTOJOIN", payload, "WHISPER", group.leader)
     end)
     
     buttonGroup:AddChild(inviteButton)

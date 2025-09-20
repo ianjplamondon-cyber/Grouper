@@ -1,7 +1,33 @@
 Grouper = LibStub("AceAddon-3.0"):NewAddon("Grouper", "AceConsole-3.0", "AceEvent-3.0", "AceTimer-3.0", "AceComm-3.0", "AceSerializer-3.0")
+-- Global utility to update playerInfo cache
+function Grouper:UpdatePlayerInfo()
+    local playerName = UnitName("player")
+    local race = UnitRace("player")
+    local class = select(2, UnitClass("player"))
+    local level = UnitLevel("player")
+    local fullName = playerName and (playerName .. "-" .. (GetRealmName():gsub("%s", ""))) or ""
+    self.playerInfo = {
+        fullName = fullName,
+        name = playerName,
+        race = race,
+        class = class,
+        level = level
+    }
+    if self.db and self.db.profile and self.db.profile.debug and self.db.profile.debug.enabled then
+        self:Print(string.format("DEBUG: Updated playerInfo cache: Name=%s, Class=%s, Race=%s, Level=%s, FullName=%s", playerName or "", class or "", race or "", level or "", fullName or ""))
+    end
+end
 AceGUI = LibStub("AceGUI-3.0")
 
+-- Register AceComm prefixes to ensure message handling
+AceComm = LibStub("AceComm-3.0")
+AceComm:RegisterComm("GRPR_GRP_UPD", function(...) Grouper:OnCommReceived(...) end)
+AceComm:RegisterComm("GRPR_AUTOJOIN", function(...) Grouper:OnCommReceived(...) end)
+AceComm:RegisterComm("GRPR_TEST", function(...) Grouper:OnCommReceived(...) end)
+
 function Grouper:OnEnable()
+    -- Always update playerInfo cache at startup
+    self:UpdatePlayerInfo()
     -- Register events
     self:RegisterEvent("PLAYER_ENTERING_WORLD", "OnPlayerEnteringWorld")
     self:RegisterEvent("PARTY_INVITE_REQUEST", "OnPartyInviteRequest")
@@ -20,7 +46,7 @@ function Grouper:OnEnable()
     self:RegisterComm("GRPR_CHUNK_REQ", "OnCommReceived")   -- Chunk requests
     self:RegisterComm("GRPR_CHUNK_RES", "OnCommReceived")   -- Chunk responses
     self:RegisterComm("GROUPER_TEST", "OnCommReceived")     -- Test messages
-    self:RegisterComm("GrouperAutoJoin", "OnAutoJoinRequest") -- Auto-join invite requests
+    self:RegisterComm("GRPR_AUTOJOIN", "OnCommReceived") -- Auto-join invite requests
 
     if self.db and self.db.profile and self.db.profile.debug and self.db.profile.debug.enabled then
         self:Print("DEBUG: OnEnable - Registered events and AceComm prefixes for Grouper communication.")
