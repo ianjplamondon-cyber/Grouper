@@ -306,8 +306,23 @@ function Grouper:SendGroupUpdateViaChannel(groupData)
         end
     end
     
-    -- Create compact encoded message: GRPR_GROUP_UPDATE:id:title:typeId:dungeonId:currentSize:maxSize:location:timestamp:leader:roleId
-    local message = string.format("GRPR_GROUP_UPDATE:%s:%s:%d:%d:%d:%d:%s:%d:%s:%d",
+    -- Encode all members: shortName,classId,raceId,level|...
+    local CLASS_IDS = { WARRIOR=1, PALADIN=2, HUNTER=3, ROGUE=4, PRIEST=5, DEATHKNIGHT=6, SHAMAN=7, MAGE=8, WARLOCK=9, DRUID=10, MONK=11, DEMONHUNTER=12, EVOKER=13 }
+    local RACE_IDS = { Human=1, Orc=2, Dwarf=3, NightElf=4, Undead=5, Tauren=6, Gnome=7, Troll=8, Goblin=9, BloodElf=10, Draenei=11, Worgen=12, Pandaren=13 }
+    local memberStrings = {}
+    if groupData.members then
+        for _, m in ipairs(groupData.members) do
+            local classId = m.classId or (m.class and CLASS_IDS[string.upper(m.class)]) or 0
+            local raceId = m.raceId or (m.race and RACE_IDS[m.race]) or 0
+            table.insert(memberStrings, string.format("%s,%d,%d,%d",
+                m.name or "?",
+                classId,
+                raceId,
+                m.level or 0))
+        end
+    end
+    local membersEncoded = table.concat(memberStrings, "|")
+    local message = string.format("GRPR_GROUP_UPDATE:%s:%s:%d:%d:%d:%d:%s:%d:%s:%d:%s",
         groupData.id or "",
         title,
         typeId,
@@ -317,7 +332,8 @@ function Grouper:SendGroupUpdateViaChannel(groupData)
         location,
         groupData.timestamp or time(),
         groupData.leader or UnitName("player"),
-        roleId
+        roleId,
+        membersEncoded
     )
     
     if self.db.profile.debug.enabled then
@@ -417,6 +433,24 @@ function Grouper:HandleDirectGroupUpdate(message, sender)
     }
     local leaderRole = roleNames[roleId] or "dps"
     
+    -- Decode members
+    local CLASS_NAMES = { [1]="WARRIOR", [2]="PALADIN", [3]="HUNTER", [4]="ROGUE", [5]="PRIEST", [6]="DEATHKNIGHT", [7]="SHAMAN", [8]="MAGE", [9]="WARLOCK", [10]="DRUID", [11]="MONK", [12]="DEMONHUNTER", [13]="EVOKER" }
+    local RACE_NAMES = { [1]="Human", [2]="Orc", [3]="Dwarf", [4]="NightElf", [5]="Undead", [6]="Tauren", [7]="Gnome", [8]="Troll", [9]="Goblin", [10]="BloodElf", [11]="Draenei", [12]="Worgen", [13]="Pandaren" }
+    local members = {}
+    local membersEncoded = parts[12] or ""
+    for memberStr in string.gmatch(membersEncoded, "[^|]+") do
+        local mName, mClassId, mRaceId, mLevel = string.match(memberStr, "([^,]+),([^,]+),([^,]+),([^,]+)")
+        local classId = tonumber(mClassId)
+        local raceId = tonumber(mRaceId)
+        table.insert(members, {
+            name = mName,
+            classId = classId,
+            raceId = raceId,
+            class = classId and CLASS_NAMES[classId] or "PRIEST",
+            race = raceId and RACE_NAMES[raceId] or "Human",
+            level = tonumber(mLevel)
+        })
+    end
     local groupData = {
         id = parts[2],
         title = parts[3], 
@@ -430,12 +464,7 @@ function Grouper:HandleDirectGroupUpdate(message, sender)
         minLevel = minLevel,
         maxLevel = maxLevel,
         dungeons = dungeonId > 0 and {[dungeonName] = true} or {},
-        members = {
-            [parts[10]] = {
-                name = parts[10],
-                role = leaderRole
-            }
-        }
+        members = members
     }
     
     if self.db.profile.debug.enabled then

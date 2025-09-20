@@ -59,23 +59,36 @@ end
 
 
 function Grouper:HandleJoinedGroup()
-    -- Player joined a group - they might not need their LFG posts anymore
+    -- Update the members field of the correct group using its unique ID
     if self.db.profile.debug.enabled then
-        self:Print("DEBUG: Player joined a group")
+        self:Print("DEBUG: Player joined a group - updating members list")
     end
-    
-    -- Check if we have any active groups posted
-    local myGroups = {}
-    for i, group in ipairs(self.groups) do
-        if group.leader == UnitName("player") then
-            table.insert(myGroups, group)
+
+    -- Find the active group led by this player
+    for groupId, group in pairs(self.groups) do
+        if group.leader == GetFullPlayerName(UnitName("player")) then
+            -- Update members field using only the party leader's cache
+            group.members = {}
+            if self.players then
+                for playerName, playerInfo in pairs(self.players) do
+                    if playerInfo and playerInfo.lastSeen then
+                        table.insert(group.members, {
+                            name = playerInfo.fullName or playerName,
+                            class = playerInfo.class or "?",
+                            race = playerInfo.race or "?",
+                            level = playerInfo.level or "?"
+                        })
+                    end
+                end
+            end
+            if self.db.profile.debug.enabled then
+                self:Print(string.format("DEBUG: Updated members for group %s (cache only): %s", groupId, table.concat((function()
+                    local names = {}
+                    for _, m in ipairs(group.members) do table.insert(names, m.name) end
+                    return names
+                end)(), ", ")))
+            end
         end
-    end
-    
-    if #myGroups > 0 then
-        -- Ask the player if they want to remove their posted groups
-        -- For now, just notify them
-        self:Print(string.format("You joined a group! You have %d group(s) posted. Use /grouper show to manage them.", #myGroups))
     end
 end
 
@@ -89,7 +102,22 @@ function Grouper:HandleLeftGroup()
     -- No automatic action needed, just update state
 end
 
--- Helper function to get cached channel number with fallback
+-- System message event handler for group join
+local GrouperEventFrame = CreateFrame("Frame")
+GrouperEventFrame:RegisterEvent("CHAT_MSG_SYSTEM")
+GrouperEventFrame:SetScript("OnEvent", function(self, event, msg)
+    if event == "CHAT_MSG_SYSTEM" and type(msg) == "string" then
+        -- Classic Era: "<player> joins the party." (when anyone joins your group)
+        if msg:find("joins the party") then
+            if Grouper and Grouper.HandleJoinedGroup then
+                Grouper:HandleJoinedGroup()
+                if Grouper.RefreshGroupList then
+                    Grouper:RefreshGroupList()
+                end
+            end
+        end
+    end
+end)
 function Grouper:GetGrouperChannelIndex()
     -- Use cached value if available
     if self.grouperChannelNumber and self.grouperChannelNumber > 0 then
@@ -158,6 +186,26 @@ function Grouper:CreateGroup(groupData)
         end
     end
     
+    -- Class and race encoding tables
+    local CLASS_IDS = { WARRIOR=1, PALADIN=2, HUNTER=3, ROGUE=4, PRIEST=5, DEATHKNIGHT=6, SHAMAN=7, MAGE=8, WARLOCK=9, DRUID=10, MONK=11, DEMONHUNTER=12, EVOKER=13 }
+    local RACE_IDS = { Human=1, Orc=2, Dwarf=3, NightElf=4, Undead=5, Tauren=6, Gnome=7, Troll=8, Goblin=9, BloodElf=10, Draenei=11, Worgen=12, Pandaren=13 }
+    local function ShortName(fullName)
+        return fullName:match("^([^-]+)") or fullName
+    end
+    -- For local display, use full cache data
+    local members = {}
+    if self.players then
+        for playerName, playerInfo in pairs(self.players) do
+            if playerInfo and playerInfo.lastSeen then
+                table.insert(members, {
+                    name = playerInfo.fullName or playerName,
+                    class = playerInfo.class or "?",
+                    race = playerInfo.race or "?",
+                    level = playerInfo.level or "?"
+                })
+            end
+        end
+    end
     local group = {
         id = self:GenerateGroupID(),
         leader = GetFullPlayerName(UnitName("player")),
@@ -172,14 +220,7 @@ function Grouper:CreateGroup(groupData)
         location = groupData.location or "",
         dungeons = groupData.dungeons or {},
         timestamp = time(),
-        members = {
-            {
-                name = self.playerInfo.fullName,
-                class = self.playerInfo.class,
-                race = self.playerInfo.race,
-                level = self.playerInfo.level
-            }
-        }
+        members = members
     }
     
     self.groups[group.id] = group
@@ -288,16 +329,33 @@ function Grouper:HandleGroupUpdate(groupData, sender)
         end
     end
     
-    -- Ensure members field is always populated for both local and remote groups
-    if not groupData.members or #groupData.members == 0 then
-        groupData.members = {
-            {
-                name = self.playerInfo and self.playerInfo.fullName or GetFullPlayerName(UnitName("player")),
-                class = self.playerInfo and self.playerInfo.class or "?",
-                race = self.playerInfo and self.playerInfo.race or "?",
-                level = self.playerInfo and self.playerInfo.level or 0
-            }
-        }
+    -- Populate members for leader and remote users
+    if GetFullPlayerName(UnitName("player")) == groupData.leader then
+        -- Party leader: use cache
+        groupData.members = {}
+        if self.players then
+            for playerName, playerInfo in pairs(self.players) do
+                if playerInfo and playerInfo.lastSeen then
+                    table.insert(groupData.members, {
+                        name = playerInfo.fullName or playerName,
+                        class = playerInfo.class or "?",
+                        race = playerInfo.race or "?",
+                        level = playerInfo.level or "?"
+                    })
+                end
+            end
+        end
+        if #groupData.members == 0 and self.db and self.db.profile and self.db.profile.debug.enabled then
+            self:Print("DEBUG: No cached members found for leader group update!")
+        end
+    else
+        -- Remote user: use groupData.members from message
+        if not groupData.members or #groupData.members == 0 then
+            if self.db and self.db.profile and self.db.profile.debug.enabled then
+                self:Print("DEBUG: No members found in groupData.members for remote user!")
+            end
+        end
+        -- No overwrite, use as received
     end
 end
 
@@ -1118,28 +1176,23 @@ function Grouper:CreateGroupManageFrame(group, tabType)
         DEATHKNIGHT = "C41F3B", SHAMAN = "0070DE", MAGE = "69CCF0", WARLOCK = "9482C9", DRUID = "FF7D0A",
         MONK = "00FF96", DEMONHUNTER = "A330C9", EVOKER = "33937F"
     }
-    -- Always use Grouper.players cache for party member info
-    local partyMembers = {}
-    local selfName = UnitName("player")
-    if selfName and type(selfName) == "string" and selfName ~= "" then table.insert(partyMembers, selfName) end
-
-    -- Use Grouper.players cache for member info
-    for i = 1, 5 do
+    local CLASS_NAMES = { [1]="WARRIOR", [2]="PALADIN", [3]="HUNTER", [4]="ROGUE", [5]="PRIEST", [6]="DEATHKNIGHT", [7]="SHAMAN", [8]="MAGE", [9]="WARLOCK", [10]="DRUID", [11]="MONK", [12]="DEMONHUNTER", [13]="EVOKER" }
+    local RACE_NAMES = { [1]="Human", [2]="Orc", [3]="Dwarf", [4]="NightElf", [5]="Undead", [6]="Tauren", [7]="Gnome", [8]="Troll", [9]="Goblin", [10]="BloodElf", [11]="Draenei", [12]="Worgen", [13]="Pandaren" }
+    -- Display all members from group.members
+    if group.members and #group.members > 0 then
+        for _, member in ipairs(group.members) do
+            local label = AceGUI:Create("Label")
+            label:SetWidth(250)
+            local className = member.class or (member.classId and CLASS_NAMES[member.classId]) or "PRIEST"
+            local raceName = member.race or (member.raceId and RACE_NAMES[member.raceId]) or "Human"
+            local color = CLASS_COLORS[string.upper(className)] or "FFFFFF"
+            label:SetText(string.format("|cff%s%s|r | %s | %s | %d", color, member.name or "?", className, raceName, member.level or 0))
+            membersGroup:AddChild(label)
+        end
+    else
         local label = AceGUI:Create("Label")
         label:SetWidth(250)
-        local memberName = partyMembers[i]
-        local info = memberName and Grouper.players[memberName]
-        if info then
-            local color = CLASS_COLORS[string.upper(info.class or "PRIEST")] or "FFFFFF"
-            label:SetText(string.format("|cff%s%s|r | %s | %d", color, info.name or memberName, info.class or "?", info.level or 0))
-        elseif memberName then
-            label:SetText(string.format("%s (no cache)", memberName))
-            if self.db and self.db.profile and self.db.profile.debug and self.db.profile.debug.enabled then
-                self:Print(string.format("DEBUG: No cache for party member '%s' in Grouper.players", memberName))
-            end
-        else
-            label:SetText("(empty)")
-        end
+        label:SetText("No members found.")
         membersGroup:AddChild(label)
     end
     frame:AddChild(membersGroup)
