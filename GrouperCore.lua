@@ -108,8 +108,15 @@ local defaults = {
                 yOfs = 0,
             },
         },
+        autoJoin = {
+            enabled = false,
+            autoAccept = false,
+        },
     },
+ 
 }
+
+                 
 
 function Grouper:OnInitialize()
     -- Initialize database

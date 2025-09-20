@@ -102,14 +102,11 @@ function Grouper:OnPartyInviteRequest(event, inviter)
     if not self.db.profile.autoJoin.enabled then
         return
     end
-    
-    -- Strip realm name from inviter for display
+        -- Strip realm name from inviter for display
     local inviterName = self:StripRealmName(inviter)
-    
     if self.db.profile.debug.enabled then
         self:Print(string.format("DEBUG: Received party invite request from %s", inviterName))
     end
-    
     if self.db.profile.autoJoin.autoAccept then
         -- Auto-accept the invite
         AcceptGroup()
