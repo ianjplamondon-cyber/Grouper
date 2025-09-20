@@ -269,6 +269,18 @@ function Grouper:HandleGroupUpdate(groupData, sender)
             self:Print(string.format("DEBUG: Rejecting group update - sender mismatch (full: %s vs %s)", sender, groupData.leader))
         end
     end
+    
+    -- Ensure members field is always populated for both local and remote groups
+    if not groupData.members or #groupData.members == 0 then
+        groupData.members = {
+            {
+                name = self.playerInfo and self.playerInfo.fullName or GetFullPlayerName(UnitName("player")),
+                class = self.playerInfo and self.playerInfo.class or "?",
+                race = self.playerInfo and self.playerInfo.race or "?",
+                level = self.playerInfo and self.playerInfo.level or 0
+            }
+        }
+    end
 end
 
 function Grouper:CountGroups()
@@ -1167,7 +1179,7 @@ function Grouper:RefreshGroupList()
     end
     
     for _, group in ipairs(filteredGroups) do
-        local groupFrame = self:CreateGroupFrame(group)
+        local groupFrame = self:CreateGroupManageFrame(group)
         self.groupsScrollFrame:AddChild(groupFrame)
     end
 end
