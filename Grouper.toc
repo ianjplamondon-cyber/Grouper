@@ -3,7 +3,7 @@
 ## Notes: Help players find and create groups across your server using a shared communication channel
 ## Author: Grouper
 ## Version: 1.0.0
-## SavedVariables: GrouperDB
+## SavedVariables: GrouperDB, GrouperDebugLog
 ## X-Category: Guild
 ## X-Website: 
 ## X-Curse-Project-ID: 

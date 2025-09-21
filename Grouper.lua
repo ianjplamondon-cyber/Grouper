@@ -1,3 +1,13 @@
+-- Persistent debug log using SavedVariables
+if not GrouperDebugLog then GrouperDebugLog = {} end
+
+function Grouper:LogDebug(msg)
+    if type(msg) == "table" then
+        msg = tostring(msg)
+    end
+    local timestamp = date("%Y-%m-%d %H:%M:%S")
+    table.insert(GrouperDebugLog, string.format("[%s] %s", timestamp, msg))
+end
 -- Slash command to test AceComm WHISPER delivery
 SLASH_GROUPERTESTCOMM1 = "/groupertestcomm"
 function SlashCmdList.GROUPERTESTCOMM(msg)
@@ -59,6 +69,11 @@ end
 
 
 function Grouper:HandleJoinedGroup()
+    if self.db and self.db.profile and self.db.profile.debug and self.db.profile.debug.enabled then
+        self:Print("DEBUG: HandleJoinedGroup - preparing to broadcast updated group data.")
+        self:Print("DEBUG: HandleJoinedGroup stack trace:")
+        self:Print(debugstack(2, 10, 10))
+    end
     -- Update the members field of the correct group using its unique ID
     if self.db.profile.debug.enabled then
         self:Print("DEBUG: Player joined a group - updating members list")
@@ -87,7 +102,11 @@ function Grouper:HandleJoinedGroup()
                     for _, m in ipairs(group.members) do table.insert(names, m.name) end
                     return names
                 end)(), ", ")))
+                for i, m in ipairs(group.members) do
+                    self:Print(string.format("DEBUG: Outgoing member %d: %s | Class: %s | Race: %s | Level: %s", i, m.name or "?", m.class or "?", m.race or "?", tostring(m.level)))
+                end
             end
+            -- Do not broadcast group data here; only broadcast after system message is received
         end
     end
 end
@@ -106,11 +125,51 @@ end
 local GrouperEventFrame = CreateFrame("Frame")
 GrouperEventFrame:RegisterEvent("CHAT_MSG_SYSTEM")
 GrouperEventFrame:SetScript("OnEvent", function(self, event, msg)
+    if Grouper and Grouper.db and Grouper.db.profile and Grouper.db.profile.debug and Grouper.db.profile.debug.enabled then
+        Grouper:Print(string.format("DEBUG: [SystemMessageEvent] Event='%s', msg='%s'", tostring(event), tostring(msg)))
+        Grouper:LogDebug(string.format("[SystemMessageEvent] Event='%s', msg='%s'", tostring(event), tostring(msg)))
+    end
     if event == "CHAT_MSG_SYSTEM" and type(msg) == "string" then
-        -- Classic Era: "<player> joins the party." (when anyone joins your group)
-        if msg:find("joins the party") then
+        -- Player joins the party
+    local joinedPartyPattern = "^(.-) joins the party%.$"
+    local invitedPattern = "^You have invited (.-) to join your group%.$"
+    local joinedName = msg:match(joinedPartyPattern)
+    local invitedName = msg:match(invitedPattern)
+    if joinedName and not invitedName then
             if Grouper and Grouper.HandleJoinedGroup then
                 Grouper:HandleJoinedGroup()
+                -- Broadcast updated group data to all users after join is processed, with a delay and retry
+                if Grouper.groups then
+                    local inGroup = IsInGroup and IsInGroup() or false
+                    if Grouper.db and Grouper.db.profile and Grouper.db.profile.debug and Grouper.db.profile.debug.enabled then
+                        Grouper:Print(string.format("DEBUG: [SystemJoin] IsInGroup() = %s", tostring(inGroup)))
+                    end
+                    if inGroup then
+                        for groupId, group in pairs(Grouper.groups) do
+                            if group.leader == GetFullPlayerName(UnitName("player")) and Grouper.SendGroupUpdateViaChannel then
+                                if Grouper.db and Grouper.db.profile and Grouper.db.profile.debug and Grouper.db.profile.debug.enabled then
+                                    Grouper:Print(string.format("DEBUG: [SystemJoin] About to SendGroupUpdateViaChannel for groupId=%s, title=%s", group.id, group.title))
+                                end
+                                Grouper:SendGroupUpdateViaChannel(group)
+                                if Grouper.db and Grouper.db.profile and Grouper.db.profile.debug and Grouper.db.profile.debug.enabled then
+                                    Grouper:Print("DEBUG: Broadcasted updated group data after system join event.")
+                                end
+                            end
+                        end
+                    else
+                        if Grouper.db and Grouper.db.profile and Grouper.db.profile.debug and Grouper.db.profile.debug.enabled then
+                            Grouper:Print("DEBUG: [SystemJoin] Group not formed yet (IsInGroup()=false), skipping broadcast.")
+                        end
+                    end
+                end
+                if Grouper.RefreshGroupList then
+                    Grouper:RefreshGroupList()
+                end
+            end
+        -- Player leaves the party
+        elseif msg:find("leaves the party") then
+            if Grouper and Grouper.HandleLeftGroup then
+                Grouper:HandleLeftGroup()
                 if Grouper.RefreshGroupList then
                     Grouper:RefreshGroupList()
                 end
@@ -224,6 +283,9 @@ function Grouper:CreateGroup(groupData)
     }
     
     self.groups[group.id] = group
+    if self.db and self.db.profile and self.db.profile.debug and self.db.profile.debug.enabled then
+        self:Print(string.format("DEBUG: [CreateGroup] About to SendComm GROUP_UPDATE for groupId=%s, title=%s", group.id, group.title))
+    end
     self:SendComm("GROUP_UPDATE", group)
     self:Print(string.format("Created group: %s", group.title))
     -- Immediately refresh the UI so the new group appears
@@ -246,6 +308,9 @@ function Grouper:UpdateGroup(groupId, updates)
     end
     
     group.timestamp = time()
+    if self.db and self.db.profile and self.db.profile.debug and self.db.profile.debug.enabled then
+        self:Print(string.format("DEBUG: [UpdateGroup] About to SendComm GROUP_UPDATE for groupId=%s, title=%s", group.id, group.title))
+    end
     self:SendComm("GROUP_UPDATE", group)
     
     return true
@@ -276,6 +341,30 @@ function Grouper:GetTableKeys(tbl)
 end
 
 function Grouper:HandleGroupUpdate(groupData, sender)
+    if self.db and self.db.profile and self.db.profile.debug and self.db.profile.debug.enabled then
+        local localPlayer = GetFullPlayerName(UnitName("player"))
+        if localPlayer == groupData.leader then
+            self:Print("DEBUG: [HandleGroupUpdate] (local leader) - using cache for members.")
+        else
+            self:Print("DEBUG: [HandleGroupUpdate] (remote user) - using received members.")
+            self:Print(string.format("DEBUG: [HandleGroupUpdate] (remote user) - sender: %s, groupId: %s, title: %s", tostring(sender), tostring(groupData.id), tostring(groupData.title)))
+            if groupData.members then
+                for i, m in ipairs(groupData.members) do
+                    self:Print(string.format("DEBUG: [HandleGroupUpdate] member %d: %s, class=%s, race=%s, level=%s", i, m.name or "?", m.class or tostring(m.classId), m.race or tostring(m.raceId), tostring(m.level)))
+                end
+                self:Print("DEBUG: [HandleGroupUpdate] (remote user) - received members: " .. table.concat(self:GetTableKeys(groupData.members), ", "))
+            else
+                self:Print("DEBUG: [HandleGroupUpdate] No members found in groupData.members for remote user!")
+            end
+            if groupData and groupData.timestamp then
+                self:Print("DEBUG: [HandleGroupUpdate] (remote user) - group timestamp: " .. tostring(groupData.timestamp))
+            end
+            if groupData and groupData.type then
+                self:Print("DEBUG: [HandleGroupUpdate] (remote user) - group type: " .. tostring(groupData.type))
+            end
+            self:Print("DEBUG: [HandleGroupUpdate] (remote user) - full groupData: " .. self:Serialize(groupData))
+        end
+    end
     self:Print(string.rep("-", 40))
     self:Print("DEBUG: [HandleGroupUpdate] called")
     self:Print(string.format("DEBUG: sender: %s, leader: %s", sender, groupData and groupData.leader or "nil"))
@@ -1268,6 +1357,15 @@ function Grouper:CreateGroupManageFrame(group, tabType)
             end
         end)
         buttonGroup:AddChild(removeButton)
+
+        local syncButton = AceGUI:Create("Button")
+        syncButton:SetText("Sync")
+        syncButton:SetWidth(100)
+        syncButton:SetCallback("OnClick", function()
+            self:Print("DEBUG: Sync button clicked! Broadcasting group update...")
+            Grouper:SendGroupUpdateViaChannel(group)
+        end)
+        buttonGroup:AddChild(syncButton)
     end
 
     return frame

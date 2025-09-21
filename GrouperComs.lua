@@ -22,22 +22,22 @@ function IsPlayerInGroupOrRaid(targetName)
 end
 -- Handle party invite requests for auto-accept functionality
 function Grouper:OnPartyInviteRequest(event, inviter)
-    if not self.db.profile.autoJoin.enabled then
-        return
-    end
-        -- Strip realm name from inviter for display
-    local inviterName = self:StripRealmName(inviter)
-    if self.db.profile.debug.enabled then
-        self:Print(string.format("DEBUG: Received party invite request from %s", inviterName))
-    end
-    if self.db.profile.autoJoin.autoAccept then
-        -- Auto-accept the invite
-        AcceptGroup()
-        self:Print(string.format("Auto-accepted invite from %s", inviterName))
-    else
-        -- Show popup for confirmation (WoW will show default invite popup)
-        self:Print(string.format("Invite request from %s (check invite popup)", inviterName))
-    end
+    print("DEBUG: Grouper OnPartyInviteRequest fired! Event:", event, "Inviter:", inviter)
+    -- Auto-join logic commented out except for WoW API group invite initiation
+    -- if not self.db.profile.autoJoin.enabled then
+    --     return
+    -- end
+    -- local inviterName = self:StripRealmName(inviter)
+    -- if self.db.profile.debug.enabled then
+    --     self:Print(string.format("DEBUG: Received party invite request from %s", inviterName))
+    -- end
+    -- if self.db.profile.autoJoin.autoAccept then
+    --     -- AcceptGroup() call disabled to prevent protected function error
+    --     -- self:Print(string.format("Auto-accepted invite from %s", inviterName))
+    -- else
+    --     -- Show popup for confirmation (WoW will show default invite popup)
+    --     self:Print(string.format("Invite request from %s (check invite popup)", inviterName))
+    -- end
 end
 
 -- Check if already in the Grouper channel on startup
@@ -159,6 +159,10 @@ function Grouper:SendComm(messageType, data, distribution, target, priority)
     -- For GROUP_UPDATE, GROUP_REMOVE, and REQUEST_DATA, use direct channel messaging for CHANNEL distribution
     -- But allow WHISPER and other distributions to use proper AceComm
     if messageType == "GROUP_UPDATE" and (distribution == "CHANNEL" or not distribution) then
+        if self.db and self.db.profile and self.db.profile.debug and self.db.profile.debug.enabled then
+            self:Print("DEBUG: SendComm GROUP_UPDATE stack trace:")
+            self:Print(debugstack(2, 10, 10))
+        end
         return self:SendGroupUpdateViaChannel(data)
     elseif messageType == "GROUP_REMOVE" and (distribution == "CHANNEL" or not distribution) then
         return self:SendGroupRemoveViaChannel(data)
@@ -167,7 +171,7 @@ function Grouper:SendComm(messageType, data, distribution, target, priority)
     end
     
     -- For WHISPER and other distributions, use standard AceComm which works fine
-    if self.db.profile.debug.enabled then
+    if self.db and self.db.profile and self.db.profile.debug and self.db.profile.debug.enabled then
         self:Print(string.format("DEBUG: ⚡ SendComm called with messageType='%s', distribution='%s', target='%s'", messageType, distribution or "default", tostring(target)))
         if messageType == "AUTOJOIN" and type(data) == "string" then
             self:Print(string.format("DEBUG: AUTOJOIN payload: %s", data))
@@ -240,8 +244,29 @@ end
 
 
 function Grouper:SendGroupUpdateViaChannel(groupData)
+    if self.db.profile.debug.enabled then
+        local groupExists = Grouper.groups and Grouper.groups[groupData.id]
+        if groupExists then
+            Grouper:Print(string.format("DEBUG: Sending GROUP_UPDATE for existing group ID %s (update)", groupData.id))
+        else
+            Grouper:Print(string.format("DEBUG: Sending GROUP_UPDATE for new group ID %s", groupData.id))
+        end
+    end
     -- Use direct channel messaging like the working direct channel test
     local channelIndex = self:GetGrouperChannelIndex()
+    if self.db.profile.debug.enabled then
+        self:Print(string.format("DEBUG: Channel index before broadcast: %d", channelIndex))
+        self:Print(string.format("DEBUG: InCombatLockdown: %s", tostring(InCombatLockdown())))
+        self:Print(string.format("DEBUG: UnitAffectingCombat('player'): %s", tostring(UnitAffectingCombat("player"))))
+        self:Print(string.format("DEBUG: GetTime(): %s", tostring(GetTime())))
+        self:Print(string.format("DEBUG: IsLoggedIn(): %s", tostring(IsLoggedIn())))
+        if LoadingScreenFrame and LoadingScreenFrame:IsShown() then
+            self:Print("DEBUG: LoadingScreen: SHOWN")
+        else
+            self:Print("DEBUG: LoadingScreen: HIDDEN")
+        end
+        self:Print(string.format("DEBUG: Event/context: SendGroupUpdateViaChannel called from %s", tostring(debugstack(2, 1, 1))))
+    end
     if channelIndex <= 0 then
         if self.db.profile.debug.enabled then
             self:Print("DEBUG: ✗ Cannot send GROUP_UPDATE - not in Grouper channel")
@@ -321,7 +346,7 @@ function Grouper:SendGroupUpdateViaChannel(groupData)
                 m.level or 0))
         end
     end
-    local membersEncoded = table.concat(memberStrings, "|")
+    local membersEncoded = table.concat(memberStrings, ";")
     local message = string.format("GRPR_GROUP_UPDATE:%s:%s:%d:%d:%d:%d:%s:%d:%s:%d:%s",
         groupData.id or "",
         title,
@@ -339,14 +364,71 @@ function Grouper:SendGroupUpdateViaChannel(groupData)
     if self.db.profile.debug.enabled then
         self:Print(string.format("DEBUG: ⚡ Sending encoded GROUP_UPDATE via direct channel %d: %s", channelIndex, message))
     end
-    
-    -- Send via direct channel message (same method as working direct channel test)
-    SendChatMessage(message, "CHANNEL", nil, channelIndex)
-    
-    if self.db.profile.debug.enabled then
-        self:Print("DEBUG: ✓ GROUP_UPDATE sent via direct channel")
+
+    -- Debug print before sending the message to AceComm handler
+    if self.db and self.db.profile and self.db.profile.debug and self.db.profile.debug.enabled then
+        self:Print("DEBUG: About to send GROUP_UPDATE via SendChatMessage")
+        self:Print("Payload:")
+        self:Print(message)
+        self:Print(string.format("Communication Info: type=CHANNEL, language=nil, channelIndex=%s", tostring(channelIndex)))
     end
-    
+
+    local maxRetries = 5
+    local retryDelay = 3
+    local attempt = 1
+    local function trySend()
+        -- Protected checks before sending
+        if InCombatLockdown() or UnitAffectingCombat("player") then
+            if self.db and self.db.profile and self.db.profile.debug and self.db.profile.debug.enabled then
+                self:Print(string.format("DEBUG: [SendChatMessage] BLOCKED by combat lockdown (InCombatLockdown=%s, UnitAffectingCombat=%s) - delaying retry", tostring(InCombatLockdown()), tostring(UnitAffectingCombat("player"))))
+            end
+            if attempt <= maxRetries then
+                attempt = attempt + 1
+                C_Timer.After(retryDelay, trySend)
+            else
+                if self.db and self.db.profile and self.db.profile.debug and self.db.profile.debug.enabled then
+                    self:Print("DEBUG: [SendChatMessage] Max retries reached due to combat lockdown, giving up.")
+                end
+            end
+            return
+        end
+        if self.db and self.db.profile and self.db.profile.debug and self.db.profile.debug.enabled then
+            self:Print(string.format("DEBUG: [SendChatMessage] Attempt %d/%d for GROUP_UPDATE", attempt, maxRetries))
+            self:Print(string.format("Args: message='%s', type='CHANNEL', language=nil, channelIndex=%s", message, tostring(channelIndex)))
+            self:Print("DEBUG: [SendChatMessage] Stack trace:")
+            self:Print(debugstack(2, 10, 10))
+        end
+        local success, err = pcall(function()
+            SendChatMessage(message, "CHANNEL", nil, channelIndex)
+        end)
+        if success then
+            if self.db.profile.debug.enabled then
+                self:Print("DEBUG: ✓ GROUP_UPDATE sent via direct channel")
+            end
+            return true
+        else
+            if self.db and self.db.profile and self.db.profile.debug and self.db.profile.debug.enabled then
+                self:Print(string.format("DEBUG: [SendChatMessage] Failed attempt %d/%d: %s", attempt, maxRetries, tostring(err)))
+            end
+            attempt = attempt + 1
+            if attempt <= maxRetries then
+                C_Timer.After(retryDelay, trySend)
+            else
+                if self.db and self.db.profile and self.db.profile.debug and self.db.profile.debug.enabled then
+                    self:Print("DEBUG: [SendChatMessage] Max retries reached, giving up.")
+                end
+            end
+        end
+    end
+    -- Initial protected check before first send
+    if InCombatLockdown() or UnitAffectingCombat("player") then
+        if self.db and self.db.profile and self.db.profile.debug and self.db.profile.debug.enabled then
+            self:Print(string.format("DEBUG: [SendChatMessage] Initial BLOCKED by combat lockdown (InCombatLockdown=%s, UnitAffectingCombat=%s) - delaying first send", tostring(InCombatLockdown()), tostring(UnitAffectingCombat("player"))))
+        end
+        C_Timer.After(retryDelay, trySend)
+    else
+        trySend()
+    end
     return true
 end
 
@@ -372,6 +454,12 @@ function Grouper:SendRequestDataViaChannel(data)
     end
     
     -- Send via direct channel message
+    if self.db and self.db.profile and self.db.profile.debug and self.db.profile.debug.enabled then
+        self:Print("DEBUG: [SendChatMessage] About to call SendChatMessage for REQUEST_DATA")
+        self:Print(string.format("Args: message='%s', type='CHANNEL', language=nil, channelIndex=%s", message, tostring(channelIndex)))
+        self:Print("DEBUG: [SendChatMessage] Stack trace:")
+        self:Print(debugstack(2, 10, 10))
+    end
     SendChatMessage(message, "CHANNEL", nil, channelIndex)
     
     if self.db.profile.debug.enabled then
@@ -382,6 +470,25 @@ function Grouper:SendRequestDataViaChannel(data)
 end
 
 function Grouper:HandleDirectGroupUpdate(message, sender)
+    -- Debug: Show raw membersEncoded and parsed member count
+    local parts = {string.split(":", message)}
+    local membersEncoded = parts[12] or ""
+    if self.db.profile.debug.enabled then
+        Grouper:Print(string.format("DEBUG: [HandleDirectGroupUpdate] raw membersEncoded: '%s'", membersEncoded))
+        local memberCount = 0
+        for _ in string.gmatch(membersEncoded, "[^|]+") do memberCount = memberCount + 1 end
+        Grouper:Print(string.format("DEBUG: [HandleDirectGroupUpdate] parsed member count: %d", memberCount))
+    end
+    if self.db.profile.debug.enabled then
+            local parts = {string.split(":", message)}
+            local groupId = parts[2]
+            local isUpdate = Grouper.groups and Grouper.groups[groupId]
+            if isUpdate then
+                Grouper:Print(string.format("DEBUG: Received GROUP_UPDATE for existing group ID %s (update) from %s", groupId, sender))
+            else
+                Grouper:Print(string.format("DEBUG: Received GROUP_UPDATE for new group ID %s from %s", groupId, sender))
+            end
+    end
     -- Parse: GRPR_GROUP_UPDATE:id:title:typeId:dungeonId:currentSize:maxSize:location:timestamp:leader:roleId
     local parts = {string.split(":", message)}
     if #parts < 11 then
@@ -438,7 +545,7 @@ function Grouper:HandleDirectGroupUpdate(message, sender)
     local RACE_NAMES = { [1]="Human", [2]="Orc", [3]="Dwarf", [4]="NightElf", [5]="Undead", [6]="Tauren", [7]="Gnome", [8]="Troll", [9]="Goblin", [10]="BloodElf", [11]="Draenei", [12]="Worgen", [13]="Pandaren" }
     local members = {}
     local membersEncoded = parts[12] or ""
-    for memberStr in string.gmatch(membersEncoded, "[^|]+") do
+    for memberStr in string.gmatch(membersEncoded, "[^;]+") do
         local mName, mClassId, mRaceId, mLevel = string.match(memberStr, "([^,]+),([^,]+),([^,]+),([^,]+)")
         local classId = tonumber(mClassId)
         local raceId = tonumber(mRaceId)
@@ -1218,6 +1325,7 @@ end
 
 -- AceComm message handler
 function Grouper:OnCommReceived(prefix, message, distribution, sender)
+    print("DEBUG: Grouper OnCommReceived fired! Prefix:", prefix, "Sender:", sender, "Distribution:", distribution)
     self:Print("DEBUG: [RECEIVER] OnCommReceived fired!")
     self:Print(string.format("DEBUG: [RECEIVER] prefix='%s', sender='%s', distribution='%s', message='%s'", prefix, sender, distribution, tostring(message)))
     self:Print(string.format("DEBUG: [GLOBAL] OnCommReceived - prefix: %s, sender: %s, distribution: %s", prefix, sender, distribution))
@@ -1505,6 +1613,10 @@ end
 
 -- Common message processing function
 function Grouper:ProcessReceivedMessage(messageType, data, sender)
+    print("DEBUG: Grouper ProcessReceivedMessage fired! Type:", messageType, "Sender:", sender)
+    print("DEBUG: Grouper OnAutoJoinRequest fired! Prefix:", prefix, "Sender:", sender, "Distribution:", distribution)
+    print("DEBUG: Grouper SendGroupUpdateViaChannel fired! GroupData:", groupData and groupData.id)
+    print("DEBUG: Grouper SendRequestDataViaChannel fired! Data:", data)
     if self.db.profile.debug.enabled then
         self:Print(string.format("DEBUG: 🎯 ProcessReceivedMessage called: messageType=%s, sender=%s", tostring(messageType), tostring(sender)))
         self:Print(string.format("DEBUG: data type: %s", type(data)))
@@ -1713,7 +1825,7 @@ function Grouper:HandlePresence(data, sender)
     self.players[sender].groupId = data.groupId
     self.players[sender].lastSeen = time() -- Update last seen time
 end
-
+--[[
 function Grouper:BroadcastPresence()
     -- Wrap the entire function in a protected call to catch any protected function errors
     local success, errorMsg = pcall(function()
@@ -1898,7 +2010,7 @@ function Grouper:BroadcastPresence()
         -- Don't re-throw the error, just log it and continue
     end
 end
-
+--]]
 function Grouper:ShowConfig()
     AceConfigDialog:Open(ADDON_NAME)
 end

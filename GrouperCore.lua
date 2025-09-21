@@ -88,68 +88,69 @@ end
 
 -- Handles group/raid changes and refreshes UI
 function Grouper:OnPartyChanged(event)
-    if self.db and self.db.profile and self.db.profile.debug and self.db.profile.debug.enabled then
-        self:Print(string.format("DEBUG: Group changed event: %s", event or "unknown"))
-    end
-
-    -- Repopulate group data using leader's cache logic
-    if self:IsGroupLeader() and self.groups then
-        for _, group in pairs(self.groups) do
-            if group.leader == UnitName("player") then
-                self:CreateGroup({
-                    title = group.title,
-                    description = group.description,
-                    type = group.type,
-                    minLevel = group.minLevel,
-                    maxLevel = group.maxLevel,
-                    currentSize = group.currentSize,
-                    maxSize = group.maxSize,
-                    location = group.location,
-                    dungeons = group.dungeons
-                })
-            end
-        end
-    end
-    -- Refresh UI if open
-    if self.mainFrame and self.mainFrame:IsShown() then
-        self:RefreshGroupList()
-    end
+    -- Group join/change logic commented out by request
+    -- if self.db and self.db.profile and self.db.profile.debug and self.db.profile.debug.enabled then
+    --     self:Print(string.format("DEBUG: Group changed event: %s", event or "unknown"))
+    -- end
+    -- -- Repopulate group data using leader's cache logic
+    -- if self:IsGroupLeader() and self.groups then
+    --     for _, group in pairs(self.groups) do
+    --         if group.leader == UnitName("player") then
+    --             self:CreateGroup({
+    --                 title = group.title,
+    --                 description = group.description,
+    --                 type = group.type,
+    --                 minLevel = group.minLevel,
+    --                 maxLevel = group.maxLevel,
+    --                 currentSize = group.currentSize,
+    --                 maxSize = group.maxSize,
+    --                 location = group.location,
+    --                 dungeons = group.dungeons
+    --             })
+    --         end
+    --     end
+    -- end
+    -- -- Refresh UI if open
+    -- if self.mainFrame and self.mainFrame:IsShown() then
+    --     self:RefreshGroupList()
+    -- end
 end
 
 -- Register CHAT_MSG_SYSTEM event to handle party join system messages (after Grouper is initialized)
 function Grouper:OnChatMsgSystem(event, text)
-    if self.db and self.db.profile and self.db.profile.debug and self.db.profile.debug.enabled then
-        self:Print("DEBUG: CHAT_MSG_SYSTEM: " .. tostring(text))
-    end
-    -- Detect 'joins the party.' system message
-    local joinedName = text and text:match("^(.-) joins the party%.")
-    if joinedName then
-        if self.db and self.db.profile and self.db.profile.debug and self.db.profile.debug.enabled then
-            self:Print("DEBUG: Detected party join by " .. joinedName)
-        end
-        -- Repopulate group data using leader's cache logic
-        if self:IsGroupLeader() and self.groups then
-            for _, group in pairs(self.groups) do
-                if group.leader == UnitName("player") then
-                    self:CreateGroup({
-                        title = group.title,
-                        description = group.description,
-                        type = group.type,
-                        minLevel = group.minLevel,
-                        maxLevel = group.maxLevel,
-                        currentSize = group.currentSize,
-                        maxSize = group.maxSize,
-                        location = group.location,
-                        dungeons = group.dungeons
-                    })
-                end
-            end
-        end
-        -- Refresh UI if open
-        if self.mainFrame and self.mainFrame:IsShown() then
-            self:RefreshGroupList()
-        end
-    end
+    -- System message group join logic commented out by request
+    -- if self.db and self.db.profile and self.db.profile.debug and self.db.profile.debug.enabled then
+    --     self:Print("DEBUG: CHAT_MSG_SYSTEM: " .. tostring(text))
+    -- end
+    -- -- Detect 'joins the party.' system message
+    -- local joinedName = text and text:match("^(.-) joins the party%.")
+    -- if joinedName then
+    --     if self.db and self.db.profile and self.db.profile.debug and self.db.profile.debug.enabled then
+    --         self:Print("DEBUG: Detected party join by " .. joinedName)
+    --     end
+    --     -- Repopulate group data using leader's cache logic
+    --     if self:IsGroupLeader() and self.groups then
+    --         for _, group in pairs(self.groups) do
+    --             if group.leader == UnitName("player") then
+    --                 self:CreateGroup({
+    --                     title = group.title,
+    --                     description = group.description,
+    --                     type = group.type,
+    --                     minLevel = group.minLevel,
+    --                     maxLevel = group.maxLevel,
+    --                     currentSize = group.currentSize,
+    --                     maxSize = group.maxSize,
+    --                     location = group.location,
+    --                     dungeons = group.dungeons
+    --                 })
+    --             end
+    --         end
+    --     end
+    --     -- Refresh UI if open
+    --     if self.mainFrame and self.mainFrame:IsShown() then
+    --         self:RefreshGroupList()
+    --     end
+    -- end
 end
 
 -- Register event in OnInitialize
