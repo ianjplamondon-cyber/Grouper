@@ -83,32 +83,30 @@ function Grouper:HandleJoinedGroup()
     for groupId, group in pairs(self.groups) do
         if group.leader == GetFullPlayerName(UnitName("player")) then
             -- Update members field using only the party leader's cache
-            group.members = {}
-            if self.players then
-                for playerName, playerInfo in pairs(self.players) do
-                    if playerInfo and playerInfo.lastSeen then
-                        table.insert(group.members, {
-                            name = playerInfo.fullName or playerName,
-                            class = playerInfo.class or "?",
-                            race = playerInfo.race or "?",
-                            level = playerInfo.level or "?"
-                        })
+                local updated = false
+                group.members = {}
+                if self.players then
+                    for playerName, playerInfo in pairs(self.players) do
+                        if playerInfo and playerInfo.lastSeen then
+                            table.insert(group.members, {
+                                name = playerInfo.fullName or playerName,
+                                class = playerInfo.class or "?",
+                                race = playerInfo.race or "?",
+                                level = playerInfo.level or "?",
+                            })
+                        end
                     end
                 end
-            end
-            if self.db.profile.debug.enabled then
-                self:Print(string.format("DEBUG: Updated members for group %s (cache only): %s", groupId, table.concat((function()
-                    local names = {}
-                    for _, m in ipairs(group.members) do table.insert(names, m.name) end
-                    return names
-                end)(), ", ")))
-                for i, m in ipairs(group.members) do
-                    self:Print(string.format("DEBUG: Outgoing member %d: %s | Class: %s | Race: %s | Level: %s", i, m.name or "?", m.class or "?", m.race or "?", tostring(m.level)))
-                end
-            end
-            -- Do not broadcast group data here; only broadcast after system message is received
+                updated = true
         end
     end
+        if updated then
+              self:RefreshGroupList("manage")
+        end
+        -- If the My Groups tab is open, force a tab refresh to update the Sync button and members
+        if self.tabGroup and self.tabGroup.selected == "manage" then
+            self.tabGroup:SelectTab("manage")
+        end
 end
 
 function Grouper:HandleLeftGroup()
@@ -163,7 +161,7 @@ GrouperEventFrame:SetScript("OnEvent", function(self, event, msg)
                     end
                 end
                 if Grouper.RefreshGroupList then
-                    Grouper:RefreshGroupList()
+                    Grouper:RefreshGroupList("manage")
                 end
             end
         -- Player leaves the party
@@ -171,7 +169,7 @@ GrouperEventFrame:SetScript("OnEvent", function(self, event, msg)
             if Grouper and Grouper.HandleLeftGroup then
                 Grouper:HandleLeftGroup()
                 if Grouper.RefreshGroupList then
-                    Grouper:RefreshGroupList()
+                    Grouper:RefreshGroupList("manage")
                 end
             end
         end
