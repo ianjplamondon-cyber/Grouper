@@ -432,7 +432,6 @@ function Grouper:SendGroupUpdateViaChannel(groupData)
     return true
 end
 
-
 function Grouper:SendRequestDataViaChannel(data)
     -- Use direct channel messaging for REQUEST_DATA
     local channelIndex = self:GetGrouperChannelIndex()
@@ -643,6 +642,49 @@ function Grouper:HandleDirectRequestData(message, sender)
     
     if self.db.profile.debug.enabled then
         self:Print(string.format("DEBUG: Processing REQUEST_DATA from %s, sending our groups via WHISPER", requester))
+        self:Print("DEBUG: self.groups table dump:")
+        if self.groups then
+            local foundLeader = false
+            for groupId, group in pairs(self.groups) do
+                self:Print(string.format("DEBUG: groupId=%s, leader=%s, title=%s", tostring(groupId), tostring(group.leader), tostring(group.title)))
+                local playerName = UnitName("player")
+                local playerServer = GetRealmName()
+                if playerServer then
+                    playerServer = playerServer:gsub("%s+", "")
+                end
+                local fullPlayerName = playerName .. "-" .. playerServer
+                self:Print(string.format("DEBUG: Leader compare: group.leader='%s', playerName='%s', fullPlayerName='%s'", tostring(group.leader), tostring(playerName), tostring(fullPlayerName)))
+                if group.leader == playerName or group.leader == fullPlayerName then
+                    self:Print("DEBUG: Entered leader match block for WHISPER response.")
+                    if self.db.profile.debug.enabled then
+                        self:Print(string.format("DEBUG: Sending our group %s (%s) via WHISPER to %s using encoded format", groupId, group.title, requester))
+                        self:Print(string.format("DEBUG: ⚡ Sending GROUP_UPDATE via addon whisper to %s using AceComm format", requester))
+                    end
+                    local message = {
+                        type = "GROUP_UPDATE",
+                        sender = UnitName("player"),
+                        timestamp = time(),
+                        version = ADDON_VERSION,
+                        data = group
+                    }
+                    local serialized = self:Serialize(message)
+                    if self.db.profile.debug.enabled then
+                        self:Print("DEBUG: Serialized whisper GROUP_UPDATE message:")
+                        self:Print(serialized)
+                    end
+                    local success = self:SendCommMessage("GRPR_GRP_UPD", serialized, "WHISPER", requester, "NORMAL")
+                    if self.db.profile.debug.enabled then
+                        self:Print(string.format("DEBUG: AceComm addon whisper result: %s", success and "SUCCESS" or "FAILED"))
+                    end
+                    foundLeader = true
+                end
+            end
+            if not foundLeader then
+                self:Print("DEBUG: No group found with current player as leader.")
+            end
+        else
+            self:Print("DEBUG: self.groups is nil.")
+        end
     end
     
     -- Delay the response slightly to avoid rapid message sending
@@ -653,13 +695,9 @@ function Grouper:HandleDirectRequestData(message, sender)
                 if self.db.profile.debug.enabled then
                     self:Print(string.format("DEBUG: Sending our group %s (%s) via WHISPER to %s using encoded format", groupId, group.title, requester))
                 end
-                
                 if self.db.profile.debug.enabled then
                     self:Print(string.format("DEBUG: ⚡ Sending GROUP_UPDATE via addon whisper to %s using AceComm format", requester))
                 end
-                
-                -- Use AceComm format for addon whisper (system message, no chat tab)
-                -- This will be processed by OnCommReceived and use HandleGroupUpdate
                 local message = {
                     type = "GROUP_UPDATE",
                     sender = UnitName("player"),
@@ -667,9 +705,12 @@ function Grouper:HandleDirectRequestData(message, sender)
                     version = ADDON_VERSION,
                     data = group
                 }
-                
-                local success = self:SendCommMessage("GRPR_GRP_UPD", self:Serialize(message), "WHISPER", requester, "NORMAL")
-                
+                local serialized = self:Serialize(message)
+                if self.db.profile.debug.enabled then
+                    self:Print("DEBUG: Serialized whisper GROUP_UPDATE message:")
+                    self:Print(serialized)
+                end
+                local success = self:SendCommMessage("GRPR_GRP_UPD", serialized, "WHISPER", requester, "NORMAL")
                 if self.db.profile.debug.enabled then
                     self:Print(string.format("DEBUG: AceComm addon whisper result: %s", success and "SUCCESS" or "FAILED"))
                 end
@@ -1337,6 +1378,8 @@ function Grouper:OnCommReceived(prefix, message, distribution, sender)
     if prefix == "GRPR_GRP_UPD" then
         if self.db.profile.debug.enabled then
             self:Print(string.format("DEBUG: 🎯 GRPR_GRP_UPD message received from %s!", sender))
+            self:Print("DEBUG: Raw incoming whisper message:")
+            self:Print(message)
         end
     end
     
@@ -1575,7 +1618,8 @@ function Grouper:OnAutoJoinRequest(prefix, message, distribution, sender)
         level = inviteRequest.level,
         fullName = inviteRequest.fullName,
         lastSeen = inviteRequest.timestamp,
-        version = ADDON_VERSION
+        version = ADDON_VERSION,
+        groupId = inviteRequest.groupId or inviteRequest.groupID or inviteRequest.group_id or nil
     }
     self.players[inviteRequest.requester] = info
     if self.db.profile.debug.enabled then

@@ -1540,7 +1540,8 @@ function Grouper:CreateGroupManageFrame(group, tabType)
                 race = tostring(self.playerInfo.race or ""),
                 class = tostring(self.playerInfo.class or ""),
                 level = tonumber(self.playerInfo.level) or 0,
-                fullName = tostring(self.playerInfo.fullName or playerName)
+                fullName = tostring(self.playerInfo.fullName or playerName),
+                groupId = group.id
             }
             self:Print("DEBUG: InviteRequest table:")
             for k, v in pairs(inviteRequest) do
