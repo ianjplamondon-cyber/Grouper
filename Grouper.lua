@@ -122,13 +122,6 @@ function Grouper:HandleJoinedGroup()
                             race = playerInfo.race or "?",
                             level = playerInfo.level or "?",
                         })
-                        -- Update groupId for joining player
-                        if playerInfo.fullName and playerInfo.fullName ~= Grouper.GetFullPlayerName(UnitName("player")) then
-                            playerInfo.groupId = group.id
-                            if self.db and self.db.profile and self.db.profile.debug and self.db.profile.debug.enabled then
-                                self:Print(string.format("DEBUG: [HandleJoinedGroup] Set groupId=%s for joining player %s in cache", group.id, playerInfo.fullName))
-                            end
-                        end
                     end
                 end
             end
@@ -178,7 +171,6 @@ GrouperEventFrame:SetScript("OnEvent", function(self, event, msg)
         elseif msg:find("leaves the party") then
             local leftPartyPattern = "^(.-) leaves the party%.$"
             local leftName = msg:match(leftPartyPattern)
-            -- Only call LeaderRemoveMemberFromCache if current player is the leader
             local playerName = UnitName("player")
             local fullPlayerName = Grouper.GetFullPlayerName(playerName)
             local isLeader = false
@@ -190,6 +182,20 @@ GrouperEventFrame:SetScript("OnEvent", function(self, event, msg)
             end
             if leftName and Grouper and Grouper.LeaderRemoveMemberFromCache and isLeader then
                 Grouper:LeaderRemoveMemberFromCache(leftName)
+            end
+            -- If the current player is NOT the leader and leftName matches the current player, remove the group from their UI using groupId from cache
+            if not isLeader and leftName == fullPlayerName then
+                local cacheInfo = Grouper.players and Grouper.players[fullPlayerName]
+                local groupIdToRemove = cacheInfo and cacheInfo.groupId
+                if groupIdToRemove and Grouper.groups[groupIdToRemove] then
+                    Grouper.groups[groupIdToRemove] = nil
+                    if Grouper.db and Grouper.db.profile and Grouper.db.profile.debug and Grouper.db.profile.debug.enabled then
+                        Grouper:Print("DEBUG: [LeaveGroup] Removed group " .. tostring(groupIdToRemove) .. " from UI for non-leader.")
+                    end
+                end
+                if Grouper.RefreshGroupList then
+                    Grouper:RefreshGroupList("manage")
+                end
             end
             if Grouper and Grouper.HandleLeftGroup then
                 Grouper:HandleLeftGroup()
@@ -1499,6 +1505,9 @@ function Grouper:CreateGroupManageFrame(group, tabType)
             self:Print("DEBUG: Auto-Join button clicked!")
             self:Print(string.format("DEBUG: Group leader: %s", group.leader))
             local playerName = UnitName("player")
+            local fullPlayerName = Grouper.GetFullPlayerName(playerName)
+            -- Update non-leader cache on join
+            self:HandleNonLeaderCache("join", fullPlayerName, group.id)
             -- Build a string payload: "INVITE_REQUEST|requester|timestamp|race|class|level|fullName"
             local inviteRequest = {
                 type = "INVITE_REQUEST",

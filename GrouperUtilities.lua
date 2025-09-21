@@ -1,3 +1,14 @@
+Grouper:RegisterChatCommand("groupercg", function()
+    local groups = Grouper.groups
+    local count = 0
+    for groupId, group in pairs(groups) do
+        Grouper:Print(string.format("Group Cache: ID: %s | Title: %s | Leader: %s | Type: %s | Members: %s", groupId, group.title or "", group.leader or "", group.type or "", group.members and #group.members or 0))
+        count = count + 1
+    end
+    if count == 0 then
+        Grouper:Print("No groups cached.")
+    end
+end)
 -- Force clear all non-leader members from cache
 function Grouper:ForceClearNonLeaderCache()
     local leaderName = GetFullPlayerName(UnitName("player"))
@@ -42,9 +53,53 @@ function Grouper:IsDebugEnabled()
     return self.db and self.db.profile and self.db.profile.debug and self.db.profile.debug.enabled
 end
 
--- Utility functions
 function Grouper:GenerateGroupID()
     return string.format("%s_%d", UnitName("player"), time())
+end
+
+
+-- Handles cache updates for non-group leaders when joining or leaving groups
+-- action: "join" or "leave"
+-- playerName: full name (e.g., "Pickyminer-Old Blanchy")
+-- groupId: id of the group
+function Grouper:HandleNonLeaderCache(action, playerName, groupId)
+    -- Extract short name from full name
+    local shortName = playerName:match("^([^%-]+)") or playerName
+    local keys = { shortName, playerName }
+    if action == "join" then
+        for _, key in ipairs(keys) do
+            if not self.players[key] then
+                self.players[key] = { groupId = groupId, lastSeen = time() }
+            else
+                self.players[key].groupId = groupId
+                self.players[key].lastSeen = time()
+            end
+            if self:IsDebugEnabled() then
+                self:Print("DEBUG: [HandleNonLeaderCache] Added/Updated " .. key .. " to cache with groupId " .. tostring(groupId))
+            end
+        end
+    elseif action == "leave" then
+        for _, key in ipairs(keys) do
+            if self.players[key] then
+                self.players[key].groupId = nil
+                if self:IsDebugEnabled() then
+                    self:Print("DEBUG: [HandleNonLeaderCache] Removed groupId from " .. key .. " in cache.")
+                end
+            end
+        end
+        -- Optionally remove player from group members list
+        if self.groups[groupId] and self.groups[groupId].members then
+            for i = #self.groups[groupId].members, 1, -1 do
+                local member = self.groups[groupId].members[i]
+                if member == playerName or member == shortName then
+                    table.remove(self.groups[groupId].members, i)
+                    if self:IsDebugEnabled() then
+                        self:Print("DEBUG: [HandleNonLeaderCache] Removed " .. member .. " from group members list for groupId " .. tostring(groupId))
+                    end
+                end
+            end
+        end
+    end
 end
 
 function Grouper:CleanupOldGroups()
