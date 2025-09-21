@@ -122,6 +122,13 @@ function Grouper:HandleJoinedGroup()
                             race = playerInfo.race or "?",
                             level = playerInfo.level or "?",
                         })
+                        -- Update groupId for joining player
+                        if playerInfo.fullName and playerInfo.fullName ~= Grouper.GetFullPlayerName(UnitName("player")) then
+                            playerInfo.groupId = group.id
+                            if self.db and self.db.profile and self.db.profile.debug and self.db.profile.debug.enabled then
+                                self:Print(string.format("DEBUG: [HandleJoinedGroup] Set groupId=%s for joining player %s in cache", group.id, playerInfo.fullName))
+                            end
+                        end
                     end
                 end
             end
