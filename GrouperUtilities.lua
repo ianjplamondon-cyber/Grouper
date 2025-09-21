@@ -1,3 +1,20 @@
+-- Force clear all non-leader members from cache
+function Grouper:ForceClearNonLeaderCache()
+    local leaderName = GetFullPlayerName(UnitName("player"))
+    local removed = false
+    for name, _ in pairs(self.players) do
+        if name ~= leaderName then
+            self.players[name] = nil
+            removed = true
+            if self.db and self.db.profile and self.db.profile.debug and self.db.profile.debug.enabled then
+                self:Print("DEBUG: [ForceClearNonLeaderCache] Removed " .. name .. " from cache.")
+            end
+        end
+    end
+    if not removed and self.db and self.db.profile and self.db.profile.debug and self.db.profile.debug.enabled then
+        self:Print("DEBUG: [ForceClearNonLeaderCache] No non-leader members found in cache.")
+    end
+end
 -- Data broker for minimap
 dataObj = {
     type = "data source",
@@ -372,12 +389,27 @@ function Grouper:SlashCommand(input)
     end
 end
 
+-- Slash command to print group leader info
+SLASH_GROUPERCL1 = "/groupercl"
+function SlashCmdList.GROUPERCL(msg)
+    local foundLeader = false
+    for id, group in pairs(Grouper.groups) do
+        if group.leader then
+            Grouper:Print("Group ID: " .. tostring(id) .. " | Leader: " .. tostring(group.leader))
+            foundLeader = true
+        end
+    end
+    if not foundLeader then
+        Grouper:Print("No group leader information found.")
+    end
+end
+
 -- Register slash command to show current player's cached data (place at end of file)
 Grouper:RegisterChatCommand("groupercp", function()
     local cache = Grouper.players
     local count = 0
     for name, info in pairs(cache) do
-        Grouper:Print(string.format("Player Cache: Name: %s | Class: %s | Race: %s | Level: %s | FullName: %s", info.name or name, info.class or "", info.race or "", info.level or "", info.fullName or name))
+        Grouper:Print(string.format("Player Cache: Name: %s | Class: %s | Race: %s | Level: %s | FullName: %s | GroupID: %s", info.name or name, info.class or "", info.race or "", info.level or "", info.fullName or name, info.groupId or "None"))
         count = count + 1
     end
     if count == 0 then

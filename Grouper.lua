@@ -1,3 +1,31 @@
+-- Remove departed member's data from cache (party leader only)
+function Grouper:LeaderRemoveMemberFromCache(leftName)
+    local playerName = UnitName("player")
+    local fullPlayerName = Grouper.GetFullPlayerName(playerName)
+    -- Only act if current player is the party leader
+    local isLeader = false
+    for groupId, group in pairs(self.groups) do
+        if group.leader == fullPlayerName then
+            isLeader = true
+            break
+        end
+    end
+    if not isLeader then
+        if self.db and self.db.profile and self.db.profile.debug and self.db.profile.debug.enabled then
+            self:Print("DEBUG: [LeaderRemoveMemberFromCache] Skipped: Not leader.")
+        end
+        return
+    end
+    -- Remove from cache (self.players)
+    for cacheName, _ in pairs(self.players) do
+        if cacheName == leftName or cacheName == Grouper.GetFullPlayerName(leftName) then
+            self.players[cacheName] = nil
+            if self.db and self.db.profile and self.db.profile.debug and self.db.profile.debug.enabled then
+                self:Print("DEBUG: [LeaderRemoveMemberFromCache] Removed " .. cacheName .. " from cache after leaving party.")
+            end
+        end
+    end
+end
 -- Persistent debug log using SavedVariables
 if not GrouperDebugLog then GrouperDebugLog = {} end
 
@@ -27,7 +55,7 @@ function SlashCmdList.GROUPERTESTCOMM(msg)
     Grouper:SendComm("TEST", testMessage, "WHISPER", target, "ALERT")
 end
 -- Utility to get full player name with realm, always using exact realm format
-local function GetFullPlayerName(name)
+function Grouper.GetFullPlayerName(name)
     if not name then return "" end
     local realm = GetRealmName()
     -- Remove spaces from realm name for consistency
@@ -81,32 +109,32 @@ function Grouper:HandleJoinedGroup()
 
     -- Find the active group led by this player
     for groupId, group in pairs(self.groups) do
-        if group.leader == GetFullPlayerName(UnitName("player")) then
+        if group.leader == Grouper.GetFullPlayerName(UnitName("player")) then
             -- Update members field using only the party leader's cache
-                local updated = false
-                group.members = {}
-                if self.players then
-                    for playerName, playerInfo in pairs(self.players) do
-                        if playerInfo and playerInfo.lastSeen then
-                            table.insert(group.members, {
-                                name = playerInfo.fullName or playerName,
-                                class = playerInfo.class or "?",
-                                race = playerInfo.race or "?",
-                                level = playerInfo.level or "?",
-                            })
-                        end
+            local updated = false
+            group.members = {}
+            if self.players then
+                for playerName, playerInfo in pairs(self.players) do
+                    if playerInfo and playerInfo.lastSeen then
+                        table.insert(group.members, {
+                            name = playerInfo.fullName or playerName,
+                            class = playerInfo.class or "?",
+                            race = playerInfo.race or "?",
+                            level = playerInfo.level or "?",
+                        })
                     end
                 end
-                updated = true
+            end
+            updated = true
         end
     end
-        if updated then
-              self:RefreshGroupList("manage")
-        end
-        -- If the My Groups tab is open, force a tab refresh to update the Sync button and members
-        if self.tabGroup and self.tabGroup.selected == "manage" then
-            self.tabGroup:SelectTab("manage")
-        end
+    if updated then
+        self:RefreshGroupList("manage")
+    end
+    -- If the My Groups tab is open, force a tab refresh to update the Sync button and members
+    if self.tabGroup and self.tabGroup.selected == "manage" then
+        self.tabGroup:SelectTab("manage")
+    end
 end
 
 function Grouper:HandleLeftGroup()
@@ -123,6 +151,102 @@ end
 local GrouperEventFrame = CreateFrame("Frame")
 GrouperEventFrame:RegisterEvent("CHAT_MSG_SYSTEM")
 GrouperEventFrame:SetScript("OnEvent", function(self, event, msg)
+    if event == "CHAT_MSG_SYSTEM" and type(msg) == "string" then
+        if Grouper and Grouper.db and Grouper.db.profile and Grouper.db.profile.debug and Grouper.db.profile.debug.enabled then
+            Grouper:Print("DEBUG: [SystemMessageEvent] Received: " .. tostring(msg))
+        end
+    if self.db and self.db.profile and self.db.profile.debug and self.db.profile.debug.enabled then
+        self:Print("DEBUG: [LeaderRemoveMemberFromCache] Called for " .. tostring(leftName))
+    end
+        -- Player joins the party
+        local joinedPartyPattern = "^(.-) joins the party%.$"
+        local invitedPattern = "^You have invited (.-) to join your group%.$"
+        local joinedName = msg:match(joinedPartyPattern)
+        local invitedName = msg:match(invitedPattern)
+        if joinedName and not invitedName then
+            if Grouper and Grouper.HandleJoinedGroup then
+                Grouper:HandleJoinedGroup()
+                -- ...existing code...
+            end
+        elseif msg:find("leaves the party") then
+            local leftPartyPattern = "^(.-) leaves the party%.$"
+            local leftName = msg:match(leftPartyPattern)
+            -- Only call LeaderRemoveMemberFromCache if current player is the leader
+            local playerName = UnitName("player")
+            local fullPlayerName = Grouper.GetFullPlayerName(playerName)
+            local isLeader = false
+            for groupId, group in pairs(Grouper.groups) do
+                if group.leader == fullPlayerName then
+                    isLeader = true
+                    break
+                end
+            end
+            if leftName and Grouper and Grouper.LeaderRemoveMemberFromCache and isLeader then
+                Grouper:LeaderRemoveMemberFromCache(leftName)
+            end
+            if Grouper and Grouper.HandleLeftGroup then
+                Grouper:HandleLeftGroup()
+                if Grouper.RefreshGroupList then
+                    Grouper:RefreshGroupList("manage")
+                end
+            end
+        elseif msg:find("You leave the group%.") then
+            -- Only remove current player from cache if leader
+            local playerName = UnitName("player")
+            local fullPlayerName = Grouper.GetFullPlayerName(playerName)
+            local isLeader = false
+            for groupId, group in pairs(Grouper.groups) do
+                if group.leader == fullPlayerName then
+                    isLeader = true
+                    break
+                end
+            end
+            if Grouper and Grouper.LeaderRemoveMemberFromCache and isLeader then
+                Grouper:LeaderRemoveMemberFromCache(playerName)
+            end
+            if Grouper and Grouper.HandleLeftGroup then
+                Grouper:HandleLeftGroup()
+                if Grouper.RefreshGroupList then
+                    Grouper:RefreshGroupList("manage")
+                end
+            end
+        elseif msg:find("You have disbanded the group") or msg:find("Your group has been disbanded%.") then
+            -- When the leader disbands the group, remove all non-leader members from cache
+            local leaderName = Grouper.GetFullPlayerName(UnitName("player"))
+            local otherMember = nil
+            for name, info in pairs(Grouper.players) do
+                if name ~= leaderName then
+                    otherMember = name
+                    break
+                end
+            end
+            if otherMember and Grouper and Grouper.LeaderRemoveMemberFromCache then
+                Grouper:LeaderRemoveMemberFromCache(otherMember)
+            end
+            if Grouper and Grouper.HandleLeftGroup then
+                Grouper:HandleLeftGroup()
+                if Grouper.RefreshGroupList then
+                    Grouper:RefreshGroupList("manage")
+                end
+            end
+        elseif msg:find("You leave the group%.") then
+            -- When the leader leaves the group, clear all members from cache except self
+            if Grouper and Grouper.LeaderRemoveMemberFromCache then
+                local playerName = UnitName("player")
+                for cacheName, _ in pairs(Grouper.players) do
+                    if cacheName ~= playerName and cacheName ~= Grouper.GetFullPlayerName(playerName) then
+                        Grouper:LeaderRemoveMemberFromCache(cacheName)
+                    end
+                end
+            end
+            if Grouper and Grouper.HandleLeftGroup then
+                Grouper:HandleLeftGroup()
+                if Grouper.RefreshGroupList then
+                    Grouper:RefreshGroupList("manage")
+                end
+            end
+        end
+    end
     if Grouper and Grouper.db and Grouper.db.profile and Grouper.db.profile.debug and Grouper.db.profile.debug.enabled then
         Grouper:Print(string.format("DEBUG: [SystemMessageEvent] Event='%s', msg='%s'", tostring(event), tostring(msg)))
         Grouper:LogDebug(string.format("[SystemMessageEvent] Event='%s', msg='%s'", tostring(event), tostring(msg)))
@@ -144,7 +268,7 @@ GrouperEventFrame:SetScript("OnEvent", function(self, event, msg)
                     end
                     if inGroup then
                         for groupId, group in pairs(Grouper.groups) do
-                            if group.leader == GetFullPlayerName(UnitName("player")) and Grouper.SendGroupUpdateViaChannel then
+                            if group.leader == Grouper.GetFullPlayerName(UnitName("player")) and Grouper.SendGroupUpdateViaChannel then
                                 if Grouper.db and Grouper.db.profile and Grouper.db.profile.debug and Grouper.db.profile.debug.enabled then
                                     Grouper:Print(string.format("DEBUG: [SystemJoin] About to SendGroupUpdateViaChannel for groupId=%s, title=%s", group.id, group.title))
                                 end
@@ -166,12 +290,46 @@ GrouperEventFrame:SetScript("OnEvent", function(self, event, msg)
             end
         -- Player leaves the party
         elseif msg:find("leaves the party") then
+            local leftPartyPattern = "^(.-) leaves the party%.$"
+            local leftName = msg:match(leftPartyPattern)
+            if leftName and Grouper and Grouper.LeaderRemoveMemberFromCache then
+                Grouper:LeaderRemoveMemberFromCache(leftName)
+            end
             if Grouper and Grouper.HandleLeftGroup then
                 Grouper:HandleLeftGroup()
                 if Grouper.RefreshGroupList then
                     Grouper:RefreshGroupList("manage")
                 end
             end
+        elseif msg:find("You have disbanded the group") then
+            -- When the leader disbands the group, clear all members from cache
+            if Grouper and Grouper.LeaderRemoveMemberFromCache then
+                -- Remove all members except self
+                local playerName = UnitName("player")
+                for cacheName, _ in pairs(Grouper.players) do
+                    if cacheName ~= playerName and cacheName ~= Grouper.GetFullPlayerName(playerName) then
+                        Grouper:LeaderRemoveMemberFromCache(cacheName)
+                    end
+                end
+            end
+            if Grouper and Grouper.HandleLeftGroup then
+                Grouper:HandleLeftGroup()
+                if Grouper.RefreshGroupList then
+                    Grouper:RefreshGroupList("manage")
+                end
+            end
+-- Remove departed member's data from cache (only for party leader)
+function Grouper:HandlePartyMemberLeft(leftName)
+    -- Remove from cache (self.players)
+    for cacheName, _ in pairs(self.players) do
+    if cacheName == leftName or cacheName == Grouper.GetFullPlayerName(leftName) then
+            self.players[cacheName] = nil
+            if self.db and self.db.profile and self.db.profile.debug and self.db.profile.debug.enabled then
+                self:Print("DEBUG: Removed " .. cacheName .. " from cache after leaving party.")
+            end
+        end
+    end
+end
         end
     end
 end)
@@ -265,7 +423,7 @@ function Grouper:CreateGroup(groupData)
     end
     local group = {
         id = self:GenerateGroupID(),
-        leader = GetFullPlayerName(UnitName("player")),
+    leader = Grouper.GetFullPlayerName(UnitName("player")),
         title = groupData.title or "Untitled Group",
         description = groupData.description or "",
         type = groupData.type or "other",
@@ -281,6 +439,19 @@ function Grouper:CreateGroup(groupData)
     }
     
     self.groups[group.id] = group
+    -- Write group ID to player cache, only update existing entry
+    local playerFullName = Grouper.GetFullPlayerName(UnitName("player"))
+    if self.players then
+        for cacheName, info in pairs(self.players) do
+            if info.fullName == playerFullName then
+                info.groupId = nil -- Clear any previous groupId
+                info.groupId = group.id
+                if self.db and self.db.profile and self.db.profile.debug and self.db.profile.debug.enabled then
+                    self:Print(string.format("DEBUG: [CreateGroup] Set groupId=%s for player %s in cache (matched by fullName)", group.id, playerFullName))
+                end
+            end
+        end
+    end
     if self.db and self.db.profile and self.db.profile.debug and self.db.profile.debug.enabled then
         self:Print(string.format("DEBUG: [CreateGroup] About to SendComm GROUP_UPDATE for groupId=%s, title=%s", group.id, group.title))
     end
@@ -340,7 +511,7 @@ end
 
 function Grouper:HandleGroupUpdate(groupData, sender)
     if self.db and self.db.profile and self.db.profile.debug and self.db.profile.debug.enabled then
-        local localPlayer = GetFullPlayerName(UnitName("player"))
+    local localPlayer = Grouper.GetFullPlayerName(UnitName("player"))
         if localPlayer == groupData.leader then
             self:Print("DEBUG: [HandleGroupUpdate] (local leader) - using cache for members.")
         else
@@ -385,9 +556,16 @@ function Grouper:HandleGroupUpdate(groupData, sender)
         self:Print(string.format("DEBUG: Comparing full names - sender: %s, leader: %s", sender, groupData.leader))
     end
     
-    if GetFullPlayerName(groupData.leader) == GetFullPlayerName(sender) then
+    if Grouper.GetFullPlayerName(groupData.leader) == Grouper.GetFullPlayerName(sender) then
         self.groups[groupData.id] = groupData
-        
+        -- Update player cache with groupId if local player is the leader
+        local localPlayer = Grouper.GetFullPlayerName(UnitName("player"))
+        if self.players and self.players[localPlayer] and localPlayer == groupData.leader then
+            self.players[localPlayer].groupId = groupData.id
+            if self.db and self.db.profile and self.db.profile.debug and self.db.profile.debug.enabled then
+                self:Print(string.format("DEBUG: [HandleGroupUpdate] Set groupId=%s for player %s in cache", groupData.id, localPlayer))
+            end
+        end
         if self.db.profile.debug.enabled then
             self:Print(string.format("DEBUG: Added group to list. Total groups: %d", self:CountGroups()))
             self:Print(string.format("DEBUG: 💾 Stored group %s in self.groups[%s]", groupData.title, groupData.id))
@@ -398,11 +576,9 @@ function Grouper:HandleGroupUpdate(groupData, sender)
                 self:Print(string.format("DEBUG: ❌ ERROR: group %s NOT found in memory after storage!", groupData.id))
             end
         end
-        
         if self.db.profile.notifications.newGroups then
             self:Print(string.format("New group available: %s", groupData.title))
         end
-        
         -- Refresh UI if it's open (this happens after adding a group)
         if self.mainFrame and self.mainFrame:IsShown() then
             if self.db.profile.debug.enabled then
@@ -417,7 +593,7 @@ function Grouper:HandleGroupUpdate(groupData, sender)
     end
     
     -- Populate members for leader and remote users
-    if GetFullPlayerName(UnitName("player")) == groupData.leader then
+    if Grouper.GetFullPlayerName(UnitName("player")) == groupData.leader then
         -- Party leader: use cache
         groupData.members = {}
         if self.players then
@@ -1219,7 +1395,7 @@ function Grouper:CreateManageTab(container)
     
     local myGroups = {}
     for _, group in pairs(self.groups) do
-        if group.leader == GetFullPlayerName(UnitName("player")) then
+    if group.leader == Grouper.GetFullPlayerName(UnitName("player")) then
             table.insert(myGroups, group)
         end
     end
