@@ -25,6 +25,25 @@ function Grouper:LeaderRemoveMemberFromCache(leftName)
             end
         end
     end
+
+    -- Update group member count only
+    for groupId, group in pairs(self.groups) do
+        if group.leader == Grouper.GetFullPlayerName(UnitName("player")) and group.members then
+            -- If disband event, set to 1 (just leader)
+            if leftName == "DISBAND" then
+                group.members = { group.leader }
+            else
+                -- Otherwise, decrement by 1 (minimum 1)
+                local newCount = math.max(1, #group.members - 1)
+                while #group.members > newCount do
+                    table.remove(group.members)
+                end
+            end
+            if self.db and self.db.profile and self.db.profile.debug and self.db.profile.debug.enabled then
+                self:Print("DEBUG: [LeaderRemoveMemberFromCache] Updated group " .. tostring(groupId) .. " member count: " .. tostring(#group.members))
+            end
+        end
+    end
 end
 -- Persistent debug log using SavedVariables
 if not GrouperDebugLog then GrouperDebugLog = {} end
