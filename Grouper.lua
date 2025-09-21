@@ -203,19 +203,24 @@ GrouperEventFrame:SetScript("OnEvent", function(self, event, msg)
                     Grouper:RefreshGroupList("manage")
                 end
             end
-        elseif msg:find("You leave the group%.") then
-            -- Only remove current player from cache if leader
+        elseif msg:find("You leave the group%.") or msg:find("leaves the party%.") or msg:find("You have been removed from the group%.") or msg:find("Your group has been disbanded%.") or msg:find("You have disbanded the group%.") then
             local playerName = UnitName("player")
             local fullPlayerName = Grouper.GetFullPlayerName(playerName)
             local isLeader = false
+            local groupIdToRemove = nil
             for groupId, group in pairs(Grouper.groups) do
                 if group.leader == fullPlayerName then
                     isLeader = true
-                    break
                 end
             end
-            if Grouper and Grouper.LeaderRemoveMemberFromCache and isLeader then
-                Grouper:LeaderRemoveMemberFromCache(playerName)
+            -- Always use groupId from player cache for leave
+            if Grouper and Grouper.players then
+                local cacheInfo = Grouper.players[fullPlayerName] or Grouper.players[playerName]
+                if not isLeader and Grouper.HandleNonLeaderCache and cacheInfo and cacheInfo.groupId then
+                    Grouper:HandleNonLeaderCache("leave", fullPlayerName, cacheInfo.groupId)
+                elseif isLeader and Grouper.LeaderRemoveMemberFromCache then
+                    Grouper:LeaderRemoveMemberFromCache(playerName)
+                end
             end
             if Grouper and Grouper.HandleLeftGroup then
                 Grouper:HandleLeftGroup()

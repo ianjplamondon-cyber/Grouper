@@ -68,35 +68,29 @@ function Grouper:HandleNonLeaderCache(action, playerName, groupId)
     local keys = { shortName, playerName }
     if action == "join" then
         for _, key in ipairs(keys) do
-            if not self.players[key] then
-                self.players[key] = { groupId = groupId, lastSeen = time() }
-            else
+            if self.players[key] then
                 self.players[key].groupId = groupId
                 self.players[key].lastSeen = time()
-            end
-            if self:IsDebugEnabled() then
-                self:Print("DEBUG: [HandleNonLeaderCache] Added/Updated " .. key .. " to cache with groupId " .. tostring(groupId))
+                if self:IsDebugEnabled() then
+                    self:Print("DEBUG: [HandleNonLeaderCache] Updated " .. key .. " in cache with groupId " .. tostring(groupId))
+                end
             end
         end
     elseif action == "leave" then
         for _, key in ipairs(keys) do
             if self.players[key] then
+                local oldGroupId = self.players[key].groupId
                 self.players[key].groupId = nil
                 if self:IsDebugEnabled() then
-                    self:Print("DEBUG: [HandleNonLeaderCache] Removed groupId from " .. key .. " in cache.")
+                    self:Print("DEBUG: [HandleNonLeaderCache] Cleared groupId (was " .. tostring(oldGroupId) .. ") from " .. key .. " in cache.")
                 end
             end
         end
-        -- Optionally remove player from group members list
-        if self.groups[groupId] and self.groups[groupId].members then
-            for i = #self.groups[groupId].members, 1, -1 do
-                local member = self.groups[groupId].members[i]
-                if member == playerName or member == shortName then
-                    table.remove(self.groups[groupId].members, i)
-                    if self:IsDebugEnabled() then
-                        self:Print("DEBUG: [HandleNonLeaderCache] Removed " .. member .. " from group members list for groupId " .. tostring(groupId))
-                    end
-                end
+        -- Remove player from group members list
+        if self.groups[groupId] then
+            self.groups[groupId] = nil
+            if self:IsDebugEnabled() then
+                self:Print("DEBUG: [HandleNonLeaderCache] Removed group " .. tostring(groupId) .. " from group cache (non-leader left)")
             end
         end
     end
