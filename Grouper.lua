@@ -17,8 +17,8 @@ function Grouper:LeaderRemoveMemberFromCache(leftName)
         return
     end
     -- Remove from cache (self.players)
-    for cacheName, _ in pairs(self.players) do
-        if cacheName == leftName or cacheName == Grouper.GetFullPlayerName(leftName) then
+    for cacheName, info in pairs(self.players) do
+        if cacheName == leftName or cacheName == Grouper.GetFullPlayerName(leftName) or (info.fullName and info.fullName == leftName) or (info.fullName and info.fullName == Grouper.GetFullPlayerName(leftName)) then
             self.players[cacheName] = nil
             if self.db and self.db.profile and self.db.profile.debug and self.db.profile.debug.enabled then
                 self:Print("DEBUG: [LeaderRemoveMemberFromCache] Removed " .. cacheName .. " from cache after leaving party.")
