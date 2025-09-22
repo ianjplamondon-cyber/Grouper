@@ -1099,6 +1099,22 @@ function Grouper:CreateBrowseTab(container)
         typeGroup:AddChild(checkbox)
     end
     
+    -- Role filter dropdown
+    local roleFilterDropdown = AceGUI:Create("Dropdown")
+    roleFilterDropdown:SetLabel("Filter by Role")
+    roleFilterDropdown:SetList({
+        tank = "Tank",
+        healer = "Healer",
+        dps = "DPS",
+        leader = "Leader"
+    })
+    roleFilterDropdown:SetValue("dps")
+    roleFilterDropdown:SetWidth(120)
+    roleFilterDropdown:SetCallback("OnValueChanged", function(widget, event, value)
+        self.db.profile.filters.role = value
+        self:RefreshGroupList()
+    end)
+    filterGroup:AddChild(roleFilterDropdown)
     -- Dungeon filter dropdown
     local dungeonFilter = AceGUI:Create("Dropdown")
     dungeonFilter:SetLabel("Filter by Dungeon")
