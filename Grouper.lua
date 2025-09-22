@@ -484,6 +484,7 @@ function Grouper:CreateGroup(groupData)
     -- Class and race encoding tables
     local CLASS_IDS = { WARRIOR=1, PALADIN=2, HUNTER=3, ROGUE=4, PRIEST=5, DEATHKNIGHT=6, SHAMAN=7, MAGE=8, WARLOCK=9, DRUID=10, MONK=11, DEMONHUNTER=12, EVOKER=13 }
     local RACE_IDS = { Human=1, Orc=2, Dwarf=3, NightElf=4, Undead=5, Tauren=6, Gnome=7, Troll=8, Goblin=9, BloodElf=10, Draenei=11, Worgen=12, Pandaren=13 }
+    local ROLE_IDS = { dps=1, tank=2, healer=3 }
     local function ShortName(fullName)
         return fullName:match("^([^-]+)") or fullName
     end
@@ -1105,8 +1106,7 @@ function Grouper:CreateBrowseTab(container)
     roleFilterDropdown:SetList({
         tank = "Tank",
         healer = "Healer",
-        dps = "DPS",
-        leader = "Leader"
+        dps = "DPS"
     })
     roleFilterDropdown:SetValue("dps")
     roleFilterDropdown:SetWidth(120)
@@ -1430,8 +1430,7 @@ function Grouper:CreateCreateTab(container)
     roleDropdown:SetList({
         tank = "Tank",
         healer = "Healer",
-        dps = "DPS",
-        leader = "Leader"
+        dps = "DPS"
     })
     roleDropdown:SetValue("dps")
     roleDropdown:SetFullWidth(true)
@@ -1612,6 +1611,21 @@ function Grouper:CreateGroupManageFrame(group, tabType)
             self:SendComm("AUTOJOIN", payload, "WHISPER", group.leader)
         end)
         buttonGroup:AddChild(autoJoinButton)
+        -- Role dropdown to the right of Auto-Join button
+        local groupRoleDropdown = AceGUI:Create("Dropdown")
+        groupRoleDropdown:SetLabel("Role")
+        groupRoleDropdown:SetList({
+            tank = "Tank",
+            healer = "Healer",
+            dps = "DPS"
+        })
+        groupRoleDropdown:SetValue("dps")
+        groupRoleDropdown:SetWidth(100)
+        groupRoleDropdown:SetCallback("OnValueChanged", function(widget, event, value)
+            self.db.profile.groupFrameRole = value
+            self:Print("DEBUG: Group frame role set to " .. tostring(value))
+        end)
+        buttonGroup:AddChild(groupRoleDropdown)
     else
         local editButton = AceGUI:Create("Button")
         editButton:SetText("Edit")
