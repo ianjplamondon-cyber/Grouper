@@ -17,8 +17,11 @@ function Grouper:LeaderRemoveMemberFromCache(leftName)
         return
     end
     -- Remove from cache (self.players)
+    local leaderName = Grouper.GetFullPlayerName(UnitName("player"))
     for cacheName, info in pairs(self.players) do
-        if cacheName == leftName or cacheName == Grouper.GetFullPlayerName(leftName) or (info.fullName and info.fullName == leftName) or (info.fullName and info.fullName == Grouper.GetFullPlayerName(leftName)) then
+        local isDeparted = (cacheName == leftName or cacheName == Grouper.GetFullPlayerName(leftName) or (info.fullName and info.fullName == leftName) or (info.fullName and info.fullName == Grouper.GetFullPlayerName(leftName)))
+        local isLeader = (cacheName == leaderName or (info.fullName and info.fullName == leaderName))
+        if isDeparted and not isLeader then
             self.players[cacheName] = nil
             if self.db and self.db.profile and self.db.profile.debug and self.db.profile.debug.enabled then
                 self:Print("DEBUG: [LeaderRemoveMemberFromCache] Removed " .. cacheName .. " from cache after leaving party.")
@@ -32,6 +35,17 @@ function Grouper:LeaderRemoveMemberFromCache(leftName)
             -- If disband event, set to 1 (just leader)
             if leftName == "DISBAND" then
                 group.members = { group.leader }
+                -- Remove all non-leader members from cache
+                local leaderName = Grouper.GetFullPlayerName(UnitName("player"))
+                for cacheName, info in pairs(self.players) do
+                    local isLeader = (cacheName == leaderName or (info.fullName and info.fullName == leaderName))
+                    if not isLeader then
+                        self.players[cacheName] = nil
+                        if self.db and self.db.profile and self.db.profile.debug and self.db.profile.debug.enabled then
+                            self:Print("DEBUG: [LeaderRemoveMemberFromCache] Removed " .. cacheName .. " from cache after disband.")
+                        end
+                    end
+                end
             else
                 -- Otherwise, decrement by 1 (minimum 1)
                 local newCount = math.max(1, #group.members - 1)
@@ -247,18 +261,45 @@ GrouperEventFrame:SetScript("OnEvent", function(self, event, msg)
                     Grouper:RefreshGroupList("manage")
                 end
             end
-        elseif msg:find("You have disbanded the group") or msg:find("Your group has been disbanded%.") then
-            -- When the leader disbands the group, remove all non-leader members from cache
+        end
+        -- Always check for group disband and run cache removal logic
+        if msg:find("You have disbanded the group") or msg:find("Your group has been disbanded%.") then
+            if Grouper.db and Grouper.db.profile and Grouper.db.profile.debug and Grouper.db.profile.debug.enabled then
+                Grouper:Print("DEBUG: [Disband] TOP-LEVEL: Cache removal logic triggered by event handler.")
+            end
             local leaderName = Grouper.GetFullPlayerName(UnitName("player"))
-            local otherMember = nil
-            for name, info in pairs(Grouper.players) do
-                if name ~= leaderName then
-                    otherMember = name
-                    break
+            local toRemove = {}
+            if Grouper.db and Grouper.db.profile and Grouper.db.profile.debug and Grouper.db.profile.debug.enabled then
+                Grouper:Print("DEBUG: [Disband] Leader name: " .. tostring(leaderName))
+                Grouper:Print("DEBUG: [Disband] Player cache before removal:")
+                for name, info in pairs(Grouper.players) do
+                    Grouper:Print("  - " .. tostring(name))
                 end
             end
-            if otherMember and Grouper and Grouper.LeaderRemoveMemberFromCache then
-                Grouper:LeaderRemoveMemberFromCache(otherMember)
+            for name, info in pairs(Grouper.players) do
+                local isLeader = (name == leaderName) or (info and info.fullName == leaderName)
+                if Grouper.db and Grouper.db.profile and Grouper.db.profile.debug and Grouper.db.profile.debug.enabled then
+                    Grouper:Print("DEBUG: [Disband] Comparing for removal:")
+                    Grouper:Print("  - cache key: " .. tostring(name))
+                    Grouper:Print("  - info.fullName: " .. tostring(info and info.fullName or "nil"))
+                    Grouper:Print("  - leaderName: " .. tostring(leaderName))
+                    Grouper:Print("  - isLeader: " .. tostring(isLeader))
+                end
+                if not isLeader then
+                    table.insert(toRemove, name)
+                end
+            end
+            for _, name in ipairs(toRemove) do
+                Grouper.players[name] = nil
+                if Grouper.db and Grouper.db.profile and Grouper.db.profile.debug and Grouper.db.profile.debug.enabled then
+                    Grouper:Print("DEBUG: [Disband] Removed " .. name .. " from cache after disband.")
+                end
+            end
+            if Grouper.db and Grouper.db.profile and Grouper.db.profile.debug and Grouper.db.profile.debug.enabled then
+                Grouper:Print("DEBUG: [Disband] Player cache after removal:")
+                for name, info in pairs(Grouper.players) do
+                    Grouper:Print("  - " .. tostring(name))
+                end
             end
             if Grouper and Grouper.HandleLeftGroup then
                 Grouper:HandleLeftGroup()
@@ -297,6 +338,7 @@ GrouperEventFrame:SetScript("OnEvent", function(self, event, msg)
     if joinedName and not invitedName then
             if Grouper and Grouper.HandleJoinedGroup then
                 Grouper:HandleJoinedGroup()
+                --[[
                 -- Broadcast updated group data to all users after join is processed, with a delay and retry
                 if Grouper.groups then
                     local inGroup = IsInGroup and IsInGroup() or false
@@ -321,6 +363,7 @@ GrouperEventFrame:SetScript("OnEvent", function(self, event, msg)
                         end
                     end
                 end
+                --]]
                 if Grouper.RefreshGroupList then
                     Grouper:RefreshGroupList("manage")
                 end
