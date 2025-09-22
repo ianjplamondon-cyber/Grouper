@@ -152,6 +152,7 @@ function Grouper:HandleJoinedGroup()
                         table.insert(group.members, {
                             name = playerInfo.fullName or playerName,
                             class = playerInfo.class or "?",
+                            role = playerInfo.role or "?",
                             race = playerInfo.race or "?",
                             level = playerInfo.level or "?",
                         })
@@ -1544,7 +1545,8 @@ function Grouper:CreateGroupManageFrame(group, tabType)
             local className = member.class or (member.classId and CLASS_NAMES[member.classId]) or "PRIEST"
             local raceName = member.race or (member.raceId and RACE_NAMES[member.raceId]) or "Human"
             local color = CLASS_COLORS[string.upper(className)] or "FFFFFF"
-            label:SetText(string.format("|cff%s%s|r | %s | %s | %d", color, member.name or "?", className, raceName, member.level or 0))
+                local roleText = member.role or "?"
+                label:SetText(string.format("|cff%s%s|r | %s | %s | %s | %d", color, member.name or "?", className, roleText, raceName, member.level or 0))
             membersGroup:AddChild(label)
         end
     else
