@@ -1059,7 +1059,7 @@ function Grouper:CreateMainWindowContent()
     tabGroup:SetFullWidth(true)
     tabGroup:SetFullHeight(true)
     tabGroup:SetTabs({
-        {text = "Browse Groups", value = "browse"},
+    {text = "Search Filters", value = "browse"},
         {text = "Create Group", value = "create"},
         {text = "My Groups", value = "manage"}
     })
