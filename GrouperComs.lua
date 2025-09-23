@@ -339,11 +339,13 @@ function Grouper:SendGroupUpdateViaChannel(groupData)
         for _, m in ipairs(groupData.members) do
             local classId = m.classId or (m.class and CLASS_IDS[string.upper(m.class)]) or 0
             local raceId = m.raceId or (m.race and RACE_IDS[m.race]) or 0
-            table.insert(memberStrings, string.format("%s,%d,%d,%d",
+            local roleStr = m.role or "?"
+            table.insert(memberStrings, string.format("%s,%d,%d,%d,%s",
                 m.name or "?",
                 classId,
                 raceId,
-                m.level or 0))
+                m.level or 0,
+                roleStr))
         end
     end
     local membersEncoded = table.concat(memberStrings, ";")
@@ -545,7 +547,7 @@ function Grouper:HandleDirectGroupUpdate(message, sender)
     local members = {}
     local membersEncoded = parts[12] or ""
     for memberStr in string.gmatch(membersEncoded, "[^;]+") do
-        local mName, mClassId, mRaceId, mLevel = string.match(memberStr, "([^,]+),([^,]+),([^,]+),([^,]+)")
+        local mName, mClassId, mRaceId, mLevel, mRole = string.match(memberStr, "([^,]+),([^,]+),([^,]+),([^,]+),([^,]+)")
         local classId = tonumber(mClassId)
         local raceId = tonumber(mRaceId)
         table.insert(members, {
@@ -554,7 +556,8 @@ function Grouper:HandleDirectGroupUpdate(message, sender)
             raceId = raceId,
             class = classId and CLASS_NAMES[classId] or "PRIEST",
             race = raceId and RACE_NAMES[raceId] or "Human",
-            level = tonumber(mLevel)
+            level = tonumber(mLevel),
+            role = mRole or "?"
         })
     end
     local groupData = {

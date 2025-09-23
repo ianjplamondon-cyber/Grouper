@@ -489,8 +489,28 @@ function Grouper:CreateGroup(groupData)
     local function ShortName(fullName)
         return fullName:match("^([^-]+)") or fullName
     end
+    -- First, update leader's cache entry with role
+    local playerFullName = Grouper.GetFullPlayerName(UnitName("player"))
+    if self.players then
+        for cacheName, info in pairs(self.players) do
+            if cacheName == playerFullName or info.fullName == playerFullName then
+                info.groupId = nil -- Clear any previous groupId
+                info.groupId = self:GenerateGroupID() -- Will be overwritten below, but ensures it's set
+                if groupData.myRole then
+                    info.role = groupData.myRole
+                    self.playerInfo = info
+                    self.playerInfo.role = groupData.myRole
+                end
+            end
+        end
+    end
     -- For local display, use full cache data
     local members = {}
+    local function CamelCaseRole(role)
+        if not role or role == "None" or role == "?" then return role end
+        if role:lower() == "dps" then return "DPS" end
+        return role:sub(1,1):upper() .. role:sub(2):lower()
+    end
     if self.players then
         for playerName, playerInfo in pairs(self.players) do
             if playerInfo and playerInfo.lastSeen then
@@ -498,7 +518,8 @@ function Grouper:CreateGroup(groupData)
                     name = playerInfo.fullName or playerName,
                     class = playerInfo.class or "?",
                     race = playerInfo.race or "?",
-                    level = playerInfo.level or "?"
+                    level = playerInfo.level or "?",
+                    role = CamelCaseRole(playerInfo.role or "None")
                 })
             end
         end
@@ -524,14 +545,33 @@ function Grouper:CreateGroup(groupData)
     -- Write group ID to player cache, only update existing entry
     local playerFullName = Grouper.GetFullPlayerName(UnitName("player"))
     if self.players then
+        local found = false
         for cacheName, info in pairs(self.players) do
-            if info.fullName == playerFullName then
+            if cacheName == playerFullName or info.fullName == playerFullName then
+                found = true
                 info.groupId = nil -- Clear any previous groupId
                 info.groupId = group.id
-                if self.db and self.db.profile and self.db.profile.debug and self.db.profile.debug.enabled then
-                    self:Print(string.format("DEBUG: [CreateGroup] Set groupId=%s for player %s in cache (matched by fullName)", group.id, playerFullName))
+                -- Ensure role is set in cache
+                if groupData.myRole then
+                    info.role = groupData.myRole
+                    if self.db and self.db.profile and self.db.profile.debug and self.db.profile.debug.enabled then
+                        self:Print(string.format("DEBUG: [CreateGroup] Wrote role '%s' to cache for %s (key: %s)", tostring(info.role), playerFullName, cacheName))
+                    end
+                    -- Explicitly assign self.playerInfo to leader's cache entry
+                    self.playerInfo = info
+                    self.playerInfo.role = groupData.myRole
+                    if self.db and self.db.profile and self.db.profile.debug and self.db.profile.debug.enabled then
+                        self:Print(string.format("DEBUG: [CreateGroup] Updated self.playerInfo.role to '%s' for leader (explicit assignment, key: %s)", tostring(self.playerInfo.role), cacheName))
+                    end
+                else
+                    if self.db and self.db.profile and self.db.profile.debug and self.db.profile.debug.enabled then
+                        self:Print(string.format("DEBUG: [CreateGroup] groupData.myRole missing for %s (key: %s)", playerFullName, cacheName))
+                    end
                 end
             end
+        end
+        if not found and self.db and self.db.profile and self.db.profile.debug and self.db.profile.debug.enabled then
+            self:Print(string.format("DEBUG: [CreateGroup] No cache entry found for %s when writing role", playerFullName))
         end
     end
     if self.db and self.db.profile and self.db.profile.debug and self.db.profile.debug.enabled then

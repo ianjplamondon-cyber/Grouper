@@ -2,7 +2,13 @@ Grouper:RegisterChatCommand("groupercg", function()
     local groups = Grouper.groups
     local count = 0
     for groupId, group in pairs(groups) do
-        Grouper:Print(string.format("Group Cache: ID: %s | Title: %s | Leader: %s | Type: %s | Members: %s", groupId, group.title or "", group.leader or "", group.type or "", group.members and #group.members or 0))
+        local memberRoles = {}
+        if group.members then
+            for _, member in ipairs(group.members) do
+                table.insert(memberRoles, string.format("%s:%s", member.name or "?", member.role or "None"))
+            end
+        end
+        Grouper:Print(string.format("Group Cache: ID: %s | Title: %s | Leader: %s | Type: %s | Members: %s | Roles: [%s]", groupId, group.title or "", group.leader or "", group.type or "", group.members and #group.members or 0, table.concat(memberRoles, ", ")))
         count = count + 1
     end
     if count == 0 then
@@ -458,7 +464,7 @@ Grouper:RegisterChatCommand("groupercp", function()
     local cache = Grouper.players
     local count = 0
     for name, info in pairs(cache) do
-        Grouper:Print(string.format("Player Cache: Name: %s | Class: %s | Race: %s | Level: %s | FullName: %s | GroupID: %s", info.name or name, info.class or "", info.race or "", info.level or "", info.fullName or name, info.groupId or "None"))
+        Grouper:Print(string.format("Player Cache: Name: %s | Class: %s | Race: %s | Level: %s | FullName: %s | GroupID: %s | Role: %s", info.name or name, info.class or "", info.race or "", info.level or "", info.fullName or name, info.groupId or "None", info.role or "None"))
         count = count + 1
     end
     if count == 0 then
