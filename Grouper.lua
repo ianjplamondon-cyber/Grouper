@@ -1060,8 +1060,9 @@ function Grouper:CreateMainWindowContent()
     tabGroup:SetFullHeight(true)
     tabGroup:SetTabs({
     {text = "Search Filters", value = "browse"},
-        {text = "Create Group", value = "create"},
-        {text = "My Groups", value = "manage"}
+    {text = "Search Results", value = "results"},
+    {text = "Create Group", value = "create"},
+    {text = "My Groups", value = "manage"}
     })
     tabGroup:SetCallback("OnGroupSelected", function(container, event, group)
         self:ShowTab(container, group)
