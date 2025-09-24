@@ -504,24 +504,59 @@ function Grouper:CreateGroup(groupData)
             end
         end
     end
-    -- For local display, use full cache data
-    local members = {}
+    -- Update self.players cache with live party/raid data for non-leader members only
     local function CamelCaseRole(role)
         if not role or role == "None" or role == "?" then return role end
         if role:lower() == "dps" then return "DPS" end
         return role:sub(1,1):upper() .. role:sub(2):lower()
     end
-    if self.players then
-        for playerName, playerInfo in pairs(self.players) do
-            if playerInfo and playerInfo.lastSeen then
-                table.insert(members, {
-                    name = playerInfo.fullName or playerName,
-                    class = playerInfo.class or "?",
-                    race = playerInfo.race or "?",
-                    level = playerInfo.level or "?",
-                    role = CamelCaseRole(playerInfo.role or "None")
-                })
+    if not self.players then self.players = {} end
+    local leaderFullName = Grouper.GetFullPlayerName(UnitName("player"))
+    local numGroupMembers = GetNumGroupMembers and GetNumGroupMembers() or 0
+    local isRaid = IsInRaid and IsInRaid()
+    if numGroupMembers > 0 then
+        for i = 1, numGroupMembers do
+            local unit = isRaid and ("raid"..i) or (i == 1 and "player" or "party"..(i-1))
+            local name, realm = UnitName(unit)
+            if name then
+                local fullName = realm and realm ~= "" and (name.."-"..realm) or name
+                if fullName ~= leaderFullName then
+                    local classLocalized, class = UnitClass(unit)
+                    local raceLocalized, race = UnitRace(unit)
+                    local level = UnitLevel(unit)
+                    local blizzRole = UnitGroupRolesAssigned and UnitGroupRolesAssigned(unit) or "?"
+                    local role
+                    if blizzRole == "TANK" then
+                        role = "tank"
+                    elseif blizzRole == "HEALER" then
+                        role = "healer"
+                    elseif blizzRole == "DAMAGER" then
+                        role = "dps"
+                    else
+                        role = "?"
+                    end
+                    if not self.players[fullName] then self.players[fullName] = {} end
+                    self.players[fullName].fullName = fullName
+                    self.players[fullName].class = class or classLocalized or "?"
+                    self.players[fullName].race = race or raceLocalized or "?"
+                    self.players[fullName].level = level or "?"
+                    self.players[fullName].role = role
+                    self.players[fullName].lastSeen = time()
+                end
             end
+        end
+    end
+    -- For local display, use full cache data
+    local members = {}
+    for playerName, playerInfo in pairs(self.players) do
+        if playerInfo and playerInfo.lastSeen then
+            table.insert(members, {
+                name = playerInfo.fullName or playerName,
+                class = playerInfo.class or "?",
+                race = playerInfo.race or "?",
+                level = playerInfo.level or "?",
+                role = CamelCaseRole(playerInfo.role or "None")
+            })
         end
     end
     local group = {
