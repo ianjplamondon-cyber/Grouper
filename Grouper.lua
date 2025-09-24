@@ -1558,8 +1558,20 @@ function Grouper:CreateGroupManageFrame(group, tabType)
     
     -- Group info
     local infoLabel = AceGUI:Create("Label")
-    infoLabel:SetText(string.format("Type: %s | Level: %d-%d | Size: %d/%d\nLocation: %s\nDescription: %s",
-        group.type, group.minLevel, group.maxLevel, group.currentSize, group.maxSize,
+    -- Show all selected dungeons (comma-separated), or blank if not a dungeon
+    local dungeonNames = {}
+    if group.dungeons and next(group.dungeons) then
+        for name, _ in pairs(group.dungeons) do
+            table.insert(dungeonNames, name)
+        end
+    elseif group.dungeonId and DUNGEONS then
+        for _, d in ipairs(DUNGEONS) do
+            if d.id == group.dungeonId then table.insert(dungeonNames, d.name) break end
+        end
+    end
+    local dungeonsText = #dungeonNames > 0 and table.concat(dungeonNames, ", ") or "-"
+    infoLabel:SetText(string.format("Type: %s | Dungeons: %s | Level: %d-%d | Size: %d/%d\nLocation: %s\nDescription: %s",
+        group.type, dungeonsText, group.minLevel, group.maxLevel, group.currentSize, group.maxSize,
         group.location ~= "" and group.location or "Not specified",
         group.description ~= "" and group.description or "No description"))
     infoLabel:SetFullWidth(true)
@@ -1734,18 +1746,19 @@ function Grouper:CreateGroupFrame(group)
     frame:SetFullWidth(true)
     frame:SetLayout("Flow")
     
-    -- Group details
-    local dungeonsList = ""
+    -- Group details: show all selected dungeons (comma-separated)
+    local dungeonNames = {}
     if group.dungeons and next(group.dungeons) then
-        local dungeonNames = {}
         for dungeonName, _ in pairs(group.dungeons) do
             table.insert(dungeonNames, dungeonName)
         end
-        dungeonsList = "\n|cffFFD700Dungeons:|r " .. table.concat(dungeonNames, ", ")
+    elseif group.dungeonId and DUNGEONS then
+        for _, d in ipairs(DUNGEONS) do
+            if d.id == group.dungeonId then table.insert(dungeonNames, d.name) break end
+        end
     end
-    
+    local dungeonsText = #dungeonNames > 0 and table.concat(dungeonNames, ", ") or "-"
     local detailsLabel = AceGUI:Create("Label")
-    
     -- Format leader name with role if available
     local leaderText = group.leader
     if group.leaderRole then
@@ -1758,13 +1771,13 @@ function Grouper:CreateGroupFrame(group)
         local roleCapitalized = group.leaderRole:gsub("^%l", string.upper) -- Capitalize first letter
         leaderText = string.format("%s (%s%s|r)", group.leader, roleColor, roleCapitalized)
     end
-    
-    detailsLabel:SetText(string.format("|cffFFD700Leader:|r %s  |cffFFD700Type:|r %s  |cffFFD700Level:|r %d-%d\n|cffFFD700Location:|r %s%s\n|cffFFD700Description:|r %s",
+    detailsLabel:SetText(string.format("|cffFFD700Leader:|r %s  |cffFFD700Type:|r %s  |cffFFD700Dungeons:|r %s  |cffFFD700Level:|r %d-%d  |cffFFD700Size:|r %d/%d\n|cffFFD700Location:|r %s\n|cffFFD700Description:|r %s",
         leaderText,
         group.type,
+        dungeonsText,
         group.minLevel, group.maxLevel,
+        group.currentSize, group.maxSize,
         group.location ~= "" and group.location or "Not specified",
-        dungeonsList,
         group.description ~= "" and group.description or "No description"))
     detailsLabel:SetFullWidth(true)
     frame:AddChild(detailsLabel)

@@ -288,21 +288,16 @@ function Grouper:SendGroupUpdateViaChannel(groupData)
     -- Encode the event type as a number (1=Dungeon, 2=Raid, 3=Quest, 4=PvP, 5=Other)
     local typeId = groupData.typeId or 1
     
-    -- Encode the selected dungeon as a number (0 = no specific dungeon)
-    local dungeonId = 0
+    -- Encode all selected dungeons as a comma-separated string of IDs
+    local dungeonIdsStr = ""
     if groupData.dungeons and next(groupData.dungeons) then
-        -- Find the first selected dungeon and use its index
+        local ids = {}
         for dungeonName, selected in pairs(groupData.dungeons) do
-            if selected then
-                for i, dungeon in ipairs(DUNGEONS) do
-                    if dungeon.name == dungeonName then
-                        dungeonId = i
-                        break
-                    end
-                end
-                break -- Use first selected dungeon
+            if selected and DUNGEON_IDS and DUNGEON_IDS[dungeonName] then
+                table.insert(ids, tostring(DUNGEON_IDS[dungeonName]))
             end
         end
+        dungeonIdsStr = table.concat(ids, ",")
     end
     
     -- Encode the leader's role as a number (1=Tank, 2=Healer, 3=DPS)
@@ -349,11 +344,11 @@ function Grouper:SendGroupUpdateViaChannel(groupData)
         end
     end
     local membersEncoded = table.concat(memberStrings, ";")
-    local message = string.format("GRPR_GROUP_UPDATE:%s:%s:%d:%d:%d:%d:%s:%d:%s:%d:%s",
+    local message = string.format("GRPR_GROUP_UPDATE:%s:%s:%d:%s:%d:%d:%s:%d:%s:%d:%s",
         groupData.id or "",
         title,
         typeId,
-        dungeonId,
+        dungeonIdsStr,
         groupData.currentSize or 1,
         groupData.maxSize or 5,
         location,
@@ -490,7 +485,7 @@ function Grouper:HandleDirectGroupUpdate(message, sender)
                 Grouper:Print(string.format("DEBUG: Received GROUP_UPDATE for new group ID %s from %s", groupId, sender))
             end
     end
-    -- Parse: GRPR_GROUP_UPDATE:id:title:typeId:dungeonId:currentSize:maxSize:location:timestamp:leader:roleId
+    -- Parse: GRPR_GROUP_UPDATE:id:title:typeId:dungeonIds:currentSize:maxSize:location:timestamp:leader:roleId
     local parts = {string.split(":", message)}
     if #parts < 11 then
         if self.db.profile.debug.enabled then
@@ -498,12 +493,9 @@ function Grouper:HandleDirectGroupUpdate(message, sender)
         end
         return
     end
-    
     local typeId = tonumber(parts[4]) or 1
-    local dungeonId = tonumber(parts[5]) or 0
+    local dungeonIdsStr = parts[5] or ""
     local roleId = tonumber(parts[11]) or 3
-    
-    -- Decode type information
     local typeNames = {
         [1] = "dungeon",
         [2] = "raid", 
@@ -512,27 +504,30 @@ function Grouper:HandleDirectGroupUpdate(message, sender)
         [5] = "other"
     }
     local groupType = typeNames[typeId] or "dungeon"
-    
-    -- Reconstruct level ranges from DUNGEONS table
-    local minLevel = 1
-    local maxLevel = 60
-    local dungeonName = ""
-    
-    if dungeonId > 0 and dungeonId <= #DUNGEONS then
-        local dungeon = DUNGEONS[dungeonId]
-        minLevel = dungeon.minLevel
-        maxLevel = dungeon.maxLevel
-        dungeonName = dungeon.name
+    -- Parse dungeon IDs and reconstruct dungeons table
+    local dungeons = {}
+    local minLevel, maxLevel = 1, 60
+    if dungeonIdsStr ~= "" then
+        for idStr in string.gmatch(dungeonIdsStr, "[^,]+") do
+            local id = tonumber(idStr)
+            for _, dungeon in ipairs(DUNGEONS) do
+                if dungeon.id == id then
+                    dungeons[dungeon.name] = true
+                    -- Use the first dungeon's level range for min/max
+                    if minLevel == 1 and maxLevel == 60 then
+                        minLevel = dungeon.minLevel
+                        maxLevel = dungeon.maxLevel
+                    end
+                end
+            end
+        end
     elseif groupType == "dungeon" then
-        -- Default dungeon level range
         minLevel = 13
         maxLevel = 18
     elseif groupType == "raid" then
-        -- Default raid level range
         minLevel = 50
         maxLevel = 60
     end
-    
     -- Decode role information
     local roleNames = {
         [1] = "tank",
@@ -540,7 +535,6 @@ function Grouper:HandleDirectGroupUpdate(message, sender)
         [3] = "dps"
     }
     local leaderRole = roleNames[roleId] or "dps"
-    
     -- Decode members
     local CLASS_NAMES = { [1]="WARRIOR", [2]="PALADIN", [3]="HUNTER", [4]="ROGUE", [5]="PRIEST", [6]="DEATHKNIGHT", [7]="SHAMAN", [8]="MAGE", [9]="WARLOCK", [10]="DRUID", [11]="MONK", [12]="DEMONHUNTER", [13]="EVOKER" }
     local RACE_NAMES = { [1]="Human", [2]="Orc", [3]="Dwarf", [4]="NightElf", [5]="Undead", [6]="Tauren", [7]="Gnome", [8]="Troll", [9]="Goblin", [10]="BloodElf", [11]="Draenei", [12]="Worgen", [13]="Pandaren" }
@@ -572,7 +566,7 @@ function Grouper:HandleDirectGroupUpdate(message, sender)
         location = parts[8] or "",
         minLevel = minLevel,
         maxLevel = maxLevel,
-        dungeons = dungeonId > 0 and {[dungeonName] = true} or {},
+        dungeons = dungeons,
         members = members
     }
     
