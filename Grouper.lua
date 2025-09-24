@@ -1630,25 +1630,29 @@ function Grouper:CreateGroupManageFrame(group, tabType)
     local CLASS_NAMES = { [1]="WARRIOR", [2]="PALADIN", [3]="HUNTER", [4]="ROGUE", [5]="PRIEST", [6]="DEATHKNIGHT", [7]="SHAMAN", [8]="MAGE", [9]="WARLOCK", [10]="DRUID", [11]="MONK", [12]="DEMONHUNTER", [13]="EVOKER" }
     local RACE_NAMES = { [1]="Human", [2]="Orc", [3]="Dwarf", [4]="NightElf", [5]="Undead", [6]="Tauren", [7]="Gnome", [8]="Troll", [9]="Goblin", [10]="BloodElf", [11]="Draenei", [12]="Worgen", [13]="Pandaren" }
     if group.type == "dungeon" then
-        -- Sort members: tank (1), healer (2), dps (3-5)
+        -- Robust role-based sorting: tank (1), healer (2), dps (3-5), case-insensitive
         local sortedMembers = {nil, nil, nil, nil, nil}
         if group.members and #group.members > 0 then
-            local tanks, healers, dps = {}, {}, {}
+            local tanks, healers, dps, unknown = {}, {}, {}, {}
             for _, member in ipairs(group.members) do
-                if member.role == "tank" then
+                local role = member.role and string.lower(member.role) or "?"
+                if role == "tank" then
                     table.insert(tanks, member)
-                elseif member.role == "healer" then
+                elseif role == "healer" then
                     table.insert(healers, member)
-                elseif member.role == "dps" then
+                elseif role == "dps" then
                     table.insert(dps, member)
                 else
-                    table.insert(dps, member) -- fallback: treat unknown as dps
+                    table.insert(unknown, member)
                 end
             end
-            sortedMembers[1] = tanks[1]
-            sortedMembers[2] = healers[1]
-            for i = 1, 3 do
-                sortedMembers[2 + i] = dps[i]
+            -- Always fill tank, healer, dps slots in order, then unknowns
+            sortedMembers[1] = tanks[1] or healers[1] or dps[1] or unknown[1]
+            sortedMembers[2] = (tanks[1] and healers[1]) and healers[1] or (healers[2] or dps[2] or unknown[2])
+            local dpsIndex = 1
+            for i = 3, 5 do
+                sortedMembers[i] = dps[dpsIndex] or tanks[i] or healers[i] or unknown[i]
+                dpsIndex = dpsIndex + 1
             end
         end
         -- Always display 5 member slots for dungeons
