@@ -1670,6 +1670,10 @@ function Grouper:CreateGroupManageFrame(group, tabType)
     local RACE_NAMES = { [1]="Human", [2]="Orc", [3]="Dwarf", [4]="NightElf", [5]="Undead", [6]="Tauren", [7]="Gnome", [8]="Troll", [9]="Goblin", [10]="BloodElf", [11]="Draenei", [12]="Worgen", [13]="Pandaren" }
     if group.type == "dungeon" then
         -- Simple role-based slotting: tank (1), healer (2), dps (3-5), fill in order, show '?' for unknown roles
+        local function CamelCaseClass(class)
+            if not class or class == "?" then return class end
+            return class:sub(1,1):upper() .. class:sub(2):lower()
+        end
         local tanks, healers, dps, others = {}, {}, {}, {}
         if group.members and #group.members > 0 then
             for _, member in ipairs(group.members) do
@@ -1698,6 +1702,7 @@ function Grouper:CreateGroupManageFrame(group, tabType)
             local member = sortedMembers[i]
             if member then
                 local className = member.class or (member.classId and CLASS_NAMES[member.classId]) or "PRIEST"
+                className = CamelCaseClass(className)
                 local raceName = member.race or (member.raceId and RACE_NAMES[member.raceId]) or "Human"
                 local color = CLASS_COLORS[string.upper(className)] or "FFFFFF"
                 local roleText = member.role or "?"
@@ -1709,11 +1714,16 @@ function Grouper:CreateGroupManageFrame(group, tabType)
         end
     else
         -- Original logic for non-dungeon types
+        local function CamelCaseClass(class)
+            if not class or class == "?" then return class end
+            return class:sub(1,1):upper() .. class:sub(2):lower()
+        end
         if group.members and #group.members > 0 then
             for _, member in ipairs(group.members) do
                 local label = AceGUI:Create("Label")
                 label:SetWidth(250)
                 local className = member.class or (member.classId and CLASS_NAMES[member.classId]) or "PRIEST"
+                className = CamelCaseClass(className)
                 local raceName = member.race or (member.raceId and RACE_NAMES[member.raceId]) or "Human"
                 local color = CLASS_COLORS[string.upper(className)] or "FFFFFF"
                 local roleText = member.role or "?"
