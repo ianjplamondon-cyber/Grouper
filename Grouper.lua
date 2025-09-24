@@ -761,6 +761,29 @@ function Grouper:HandleGroupUpdate(groupData, sender)
         self:Print(string.format("DEBUG: Comparing full names - sender: %s, leader: %s", sender, groupData.leader))
     end
     
+    -- Always update player info cache from groupData.members before any filtering or group logic
+    local RACE_NAMES_BY_ID = {
+        [1] = "Human", [2] = "Orc", [3] = "Dwarf", [4] = "NightElf", [5] = "Undead", [6] = "Tauren", [7] = "Gnome", [8] = "Troll", [9] = "Goblin", [10] = "BloodElf", [11] = "Draenei", [12] = "Worgen", [13] = "Pandaren"
+    }
+    if groupData.members then
+        for _, m in ipairs(groupData.members) do
+            local fullName = m.name
+            if fullName then
+                if not self.players[fullName] then self.players[fullName] = {} end
+                self.players[fullName].fullName = fullName
+                self.players[fullName].class = m.class or m.classId or "?"
+                -- Decode raceId to race name if needed
+                if m.race and type(m.race) == "number" then
+                    self.players[fullName].race = RACE_NAMES_BY_ID[m.race] or tostring(m.race)
+                else
+                    self.players[fullName].race = m.race or "?"
+                end
+                self.players[fullName].level = m.level or "?"
+                self.players[fullName].role = m.role or m.myRole or "?"
+            end
+        end
+    end
+    -- Now proceed with group filtering and storage
     if Grouper.GetFullPlayerName(groupData.leader) == Grouper.GetFullPlayerName(sender) then
         self.groups[groupData.id] = groupData
         -- Update player cache with groupId if local player is the leader
@@ -853,6 +876,23 @@ end
 
 
 function Grouper:GetFilteredGroups()
+    -- Faction lookup tables
+    local HORDE_RACES = {
+        Orc=true, Troll=true, Tauren=true, Undead=true, BloodElf=true, Goblin=true, Pandaren=true
+    }
+    local ALLIANCE_RACES = {
+        Human=true, Dwarf=true, NightElf=true, Gnome=true, Draenei=true, Worgen=true, Pandaren=true
+    }
+    -- Determine player's faction by their race
+    local playerRace = UnitRace("player")
+    local playerFaction = nil
+    if HORDE_RACES[playerRace] and not ALLIANCE_RACES[playerRace] then
+        playerFaction = "Horde"
+    elseif ALLIANCE_RACES[playerRace] and not HORDE_RACES[playerRace] then
+        playerFaction = "Alliance"
+    elseif HORDE_RACES[playerRace] and ALLIANCE_RACES[playerRace] then
+        playerFaction = "Neutral"
+    end
     local filtered = {}
     local filters = self.db.profile.filters
     
@@ -864,25 +904,42 @@ function Grouper:GetFilteredGroups()
     for _, group in pairs(self.groups) do
         local include = true
         local reason = ""
-        
+        -- ...existing code...
         if self.db.profile.debug.enabled then
             self:Print(string.format("DEBUG: Checking group '%s' (type: %s, minLevel: %d, maxLevel: %d)", 
                 group.title, group.type, group.minLevel or 0, group.maxLevel or 60))
         end
-        
+        -- Faction filter: Only show groups with leader of same faction
+        if include and playerFaction and playerFaction ~= "Neutral" then
+            local leaderInfo = self.players and self.players[group.leader]
+            local leaderRace = leaderInfo and leaderInfo.race
+            local leaderFaction = nil
+            if leaderRace then
+                if HORDE_RACES[leaderRace] and not ALLIANCE_RACES[leaderRace] then
+                    leaderFaction = "Horde"
+                elseif ALLIANCE_RACES[leaderRace] and not HORDE_RACES[leaderRace] then
+                    leaderFaction = "Alliance"
+                elseif HORDE_RACES[leaderRace] and ALLIANCE_RACES[leaderRace] then
+                    leaderFaction = "Neutral"
+                end
+            end
+            if leaderFaction ~= playerFaction then
+                include = false
+                reason = string.format("faction mismatch (player: %s, leader: %s)", playerFaction, leaderFaction or "unknown")
+            end
+        end
+        -- ...existing code...
         -- Level filter
-        if group.minLevel > filters.maxLevel or group.maxLevel < filters.minLevel then
+        if include and (group.minLevel > filters.maxLevel or group.maxLevel < filters.minLevel) then
             include = false
             reason = string.format("level mismatch (group: %d-%d, filter: %d-%d)", 
                 group.minLevel or 0, group.maxLevel or 60, filters.minLevel, filters.maxLevel)
         end
-        
         -- Type filter
         if include and not filters.dungeonTypes[group.type] then
             include = false
             reason = string.format("type '%s' not enabled in filters", group.type)
         end
-        
         -- Dungeon filter
         if include and self.selectedDungeonFilter and self.selectedDungeonFilter ~= "" then
             if not group.dungeons or not group.dungeons[self.selectedDungeonFilter] then
