@@ -496,6 +496,10 @@ function Grouper:CreateGroup(groupData)
             if cacheName == playerFullName or info.fullName == playerFullName then
                 info.groupId = nil -- Clear any previous groupId
                 info.groupId = self:GenerateGroupID() -- Will be overwritten below, but ensures it's set
+                -- Ensure name and fullName are set for player.self
+                local name, realm = UnitName("player")
+                info.name = name
+                info.fullName = playerFullName
                 if groupData.myRole then
                     info.role = groupData.myRole
                     self.playerInfo = info
