@@ -1630,7 +1630,7 @@ function Grouper:CreateGroupManageFrame(group, tabType)
         local maxSpots = 5
         for i = 1, maxSpots do
             local label = AceGUI:Create("Label")
-            label:SetWidth(250)
+            label:SetWidth(500)
             if group.members and group.members[i] then
                 local member = group.members[i]
                 local className = member.class or (member.classId and CLASS_NAMES[member.classId]) or "PRIEST"
