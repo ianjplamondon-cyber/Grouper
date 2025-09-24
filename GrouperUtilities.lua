@@ -461,13 +461,51 @@ end
 
 -- Register slash command to show current player's cached data (place at end of file)
 Grouper:RegisterChatCommand("groupercp", function()
-    local cache = Grouper.players
-    local count = 0
-    for name, info in pairs(cache) do
-        Grouper:Print(string.format("Player Cache: Name: %s | Class: %s | Race: %s | Level: %s | FullName: %s | GroupID: %s | Role: %s", info.name or name, info.class or "", info.race or "", info.level or "", info.fullName or name, info.groupId or "None", info.role or "None"))
-        count = count + 1
+    Grouper:Print("==== Grouper Debug Cache Print ====")
+    -- Print self.player
+    if Grouper.player then
+        Grouper:Print("self.player:")
+        for k, v in pairs(Grouper.player) do
+            Grouper:Print(string.format("  %s: %s", tostring(k), tostring(v)))
+        end
+    else
+        Grouper:Print("self.player: nil")
     end
-    if count == 0 then
-        Grouper:Print("No player data cached.")
+
+    -- Print self.players
+    if Grouper.players then
+        Grouper:Print("self.players:")
+        local count = 0
+        for name, info in pairs(Grouper.players) do
+            local leaderStr = (info.leader == true) and "yes" or "no"
+            Grouper:Print(string.format(
+                "  Name: %s | Class: %s | Race: %s | Level: %s | FullName: %s | GroupID: %s | Leader: %s | Role: %s",
+                info.name or name,
+                info.class or "",
+                info.race or "",
+                info.level or "",
+                info.fullName or name,
+                info.groupId or "None",
+                leaderStr,
+                info.role or "None"
+            ))
+            count = count + 1
+        end
+        if count == 0 then
+            Grouper:Print("  No player data cached in self.players.")
+        end
+    else
+        Grouper:Print("self.players: nil")
     end
+
+    -- Print self.playerInfo (if present)
+    if Grouper.playerInfo then
+        Grouper:Print("self.playerInfo:")
+        for k, v in pairs(Grouper.playerInfo) do
+            Grouper:Print(string.format("  %s: %s", tostring(k), tostring(v)))
+        end
+    else
+        Grouper:Print("self.playerInfo: nil")
+    end
+    Grouper:Print("==== End Grouper Debug Cache Print ====")
 end)

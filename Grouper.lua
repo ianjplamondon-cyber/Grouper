@@ -140,27 +140,58 @@ function Grouper:HandleJoinedGroup()
         self:Print("DEBUG: Player joined a group - updating members list")
     end
 
-    -- Find the active group led by this player
+    -- Update the members field of all relevant groups (not just those led by the player)
+    local updated = false
     for groupId, group in pairs(self.groups) do
-        if group.leader == Grouper.GetFullPlayerName(UnitName("player")) then
-            -- Update members field using only the party leader's cache
-            local updated = false
-            group.members = {}
-            if self.players then
-                for playerName, playerInfo in pairs(self.players) do
-                    if playerInfo and playerInfo.lastSeen then
+        group.members = {}
+        local leaderFound = false
+        if self.players then
+            local groupLeader = group.leader
+            for playerKey, playerInfo in pairs(self.players) do
+                -- Only consider FullName keys (those containing a dash)
+                if type(playerKey) == "string" and string.find(playerKey, "-") then
+                    if playerInfo and playerInfo.groupId == groupId and playerInfo.lastSeen then
+                        -- Set leader attribute
+                        if playerKey == groupLeader then
+                            playerInfo.leader = true
+                            leaderFound = true
+                        else
+                            playerInfo.leader = false
+                        end
                         table.insert(group.members, {
-                            name = playerInfo.fullName or playerName,
+                            name = playerInfo.fullName,
                             class = playerInfo.class or "?",
                             role = playerInfo.role or "?",
                             race = playerInfo.race or "?",
                             level = playerInfo.level or "?",
+                            leader = playerInfo.leader
                         })
                     end
                 end
             end
-            updated = true
+            -- If leader not found in self.players, add them explicitly
+            if not leaderFound and groupLeader then
+                local leaderInfo = self.players[groupLeader]
+                if not leaderInfo then
+                    for _, info in pairs(self.players) do
+                        if info.fullName == groupLeader then
+                            leaderInfo = info
+                            break
+                        end
+                    end
+                end
+                local myRole = leaderInfo and leaderInfo.role or "?"
+                table.insert(group.members, {
+                    name = groupLeader,
+                    class = leaderInfo and leaderInfo.class or UnitClass("player") or "?",
+                    role = myRole or "?",
+                    race = leaderInfo and leaderInfo.race or UnitRace("player") or "?",
+                    level = leaderInfo and leaderInfo.level or UnitLevel("player") or "?",
+                    leader = true
+                })
+            end
         end
+        updated = true
     end
     if updated then
         self:RefreshGroupList("manage")
@@ -489,8 +520,9 @@ function Grouper:CreateGroup(groupData)
     local function ShortName(fullName)
         return fullName:match("^([^-]+)") or fullName
     end
-    -- First, update leader's cache entry with role
+    -- First, update leader's cache entry with role from dropdown
     local playerFullName = Grouper.GetFullPlayerName(UnitName("player"))
+    local role = groupData.myRole
     if self.players then
         for cacheName, info in pairs(self.players) do
             if cacheName == playerFullName or info.fullName == playerFullName then
@@ -500,10 +532,10 @@ function Grouper:CreateGroup(groupData)
                 local name, realm = UnitName("player")
                 info.name = name
                 info.fullName = playerFullName
-                if groupData.myRole then
-                    info.role = groupData.myRole
+                if role then
+                    info.role = role
                     self.playerInfo = info
-                    self.playerInfo.role = groupData.myRole
+                    self.playerInfo.role = role
                 end
             end
         end
@@ -546,6 +578,7 @@ function Grouper:CreateGroup(groupData)
                     self.players[fullName].level = level or "?"
                     self.players[fullName].role = role
                     self.players[fullName].lastSeen = time()
+                    self.players[fullName].leader = false -- Always set to false for non-leader
                 end
             end
         end
@@ -565,7 +598,7 @@ function Grouper:CreateGroup(groupData)
     end
     local group = {
         id = self:GenerateGroupID(),
-    leader = Grouper.GetFullPlayerName(UnitName("player")),
+        leader = Grouper.GetFullPlayerName(UnitName("player")),
         title = groupData.title or "Untitled Group",
         description = groupData.description or "",
         type = groupData.type or "other",
@@ -577,7 +610,8 @@ function Grouper:CreateGroup(groupData)
         location = groupData.location or "",
         dungeons = groupData.dungeons or {},
         timestamp = time(),
-        members = members
+        members = members,
+        myRole = role
     }
     
     self.groups[group.id] = group
@@ -596,17 +630,16 @@ function Grouper:CreateGroup(groupData)
                     if self.db and self.db.profile and self.db.profile.debug and self.db.profile.debug.enabled then
                         self:Print(string.format("DEBUG: [CreateGroup] Wrote role '%s' to cache for %s (key: %s)", tostring(info.role), playerFullName, cacheName))
                     end
-                    -- Explicitly assign self.playerInfo to leader's cache entry
-                    self.playerInfo = info
-                    self.playerInfo.role = groupData.myRole
-                    if self.db and self.db.profile and self.db.profile.debug and self.db.profile.debug.enabled then
-                        self:Print(string.format("DEBUG: [CreateGroup] Updated self.playerInfo.role to '%s' for leader (explicit assignment, key: %s)", tostring(self.playerInfo.role), cacheName))
-                    end
                 else
                     if self.db and self.db.profile and self.db.profile.debug and self.db.profile.debug.enabled then
                         self:Print(string.format("DEBUG: [CreateGroup] groupData.myRole missing for %s (key: %s)", playerFullName, cacheName))
                     end
                 end
+                -- Always set leader to true for the leader
+                info.leader = true
+            else
+                -- Always set leader to false for non-leaders
+                info.leader = false
             end
         end
         if not found and self.db and self.db.profile and self.db.profile.debug and self.db.profile.debug.enabled then
@@ -636,6 +669,8 @@ function Grouper:UpdateGroup(groupId, updates)
             group[key] = value
         end
     end
+    -- Always update myRole if present in updates
+    if updates.myRole then group.myRole = updates.myRole end
     
     group.timestamp = time()
     if self.db and self.db.profile and self.db.profile.debug and self.db.profile.debug.enabled then
@@ -846,7 +881,6 @@ function Grouper:GetFilteredGroups()
                 reason = string.format("dungeon filter '%s' doesn't match", self.selectedDungeonFilter)
             end
         end
-        
         if self.db.profile.debug.enabled then
             if include then
                 self:Print(string.format("DEBUG: ✅ Including group '%s'", group.title))
@@ -854,21 +888,17 @@ function Grouper:GetFilteredGroups()
                 self:Print(string.format("DEBUG: ❌ Excluding group '%s' - %s", group.title, reason))
             end
         end
-        
         if include then
             table.insert(filtered, group)
         end
     end
-    
     if self.db.profile.debug.enabled then
         self:Print(string.format("DEBUG: 🔍 Filtered result: %d groups passed filters", #filtered))
     end
-    
     -- Sort by timestamp (newest first)
     table.sort(filtered, function(a, b)
         return a.timestamp > b.timestamp
     end)
-    
     return filtered
 end
 
@@ -1630,10 +1660,9 @@ function Grouper:CreateGroupManageFrame(group, tabType)
     local CLASS_NAMES = { [1]="WARRIOR", [2]="PALADIN", [3]="HUNTER", [4]="ROGUE", [5]="PRIEST", [6]="DEATHKNIGHT", [7]="SHAMAN", [8]="MAGE", [9]="WARLOCK", [10]="DRUID", [11]="MONK", [12]="DEMONHUNTER", [13]="EVOKER" }
     local RACE_NAMES = { [1]="Human", [2]="Orc", [3]="Dwarf", [4]="NightElf", [5]="Undead", [6]="Tauren", [7]="Gnome", [8]="Troll", [9]="Goblin", [10]="BloodElf", [11]="Draenei", [12]="Worgen", [13]="Pandaren" }
     if group.type == "dungeon" then
-        -- Robust role-based sorting: tank (1), healer (2), dps (3-5), case-insensitive
-        local sortedMembers = {nil, nil, nil, nil, nil}
+        -- Simple role-based slotting: tank (1), healer (2), dps (3-5), fill in order, show '?' for unknown roles
+        local tanks, healers, dps, others = {}, {}, {}, {}
         if group.members and #group.members > 0 then
-            local tanks, healers, dps, unknown = {}, {}, {}, {}
             for _, member in ipairs(group.members) do
                 local role = member.role and string.lower(member.role) or "?"
                 if role == "tank" then
@@ -1643,19 +1672,16 @@ function Grouper:CreateGroupManageFrame(group, tabType)
                 elseif role == "dps" then
                     table.insert(dps, member)
                 else
-                    table.insert(unknown, member)
+                    table.insert(others, member)
                 end
             end
-            -- Always fill tank, healer, dps slots in order, then unknowns
-            sortedMembers[1] = tanks[1] or healers[1] or dps[1] or unknown[1]
-            sortedMembers[2] = (tanks[1] and healers[1]) and healers[1] or (healers[2] or dps[2] or unknown[2])
-            local dpsIndex = 1
-            for i = 3, 5 do
-                sortedMembers[i] = dps[dpsIndex] or tanks[i] or healers[i] or unknown[i]
-                dpsIndex = dpsIndex + 1
-            end
         end
-        -- Always display 5 member slots for dungeons
+        local sortedMembers = {}
+        sortedMembers[1] = tanks[1] or others[1]
+        sortedMembers[2] = healers[1] or others[2] or tanks[2]
+        sortedMembers[3] = dps[1] or others[3] or healers[2] or tanks[3]
+        sortedMembers[4] = dps[2] or others[4] or healers[3] or tanks[4]
+        sortedMembers[5] = dps[3] or others[5] or healers[4] or tanks[5]
         local maxSpots = 5
         for i = 1, maxSpots do
             local label = AceGUI:Create("Label")
@@ -1719,37 +1745,6 @@ function Grouper:CreateGroupManageFrame(group, tabType)
         end)
         buttonGroup:AddChild(whisperButton)
 
-        local autoJoinButton = AceGUI:Create("Button")
-        autoJoinButton:SetText("Auto-Join")
-        autoJoinButton:SetWidth(120)
-        autoJoinButton:SetCallback("OnClick", function()
-            self:Print("DEBUG: Auto-Join button clicked!")
-            self:Print(string.format("DEBUG: Group leader: %s", group.leader))
-            local playerName = UnitName("player")
-            local fullPlayerName = Grouper.GetFullPlayerName(playerName)
-            -- Update non-leader cache on join
-            self:HandleNonLeaderCache("join", fullPlayerName, group.id)
-            -- Build a string payload: "INVITE_REQUEST|requester|timestamp|race|class|level|fullName"
-            local inviteRequest = {
-                type = "INVITE_REQUEST",
-                requester = tostring(playerName),
-                timestamp = time(),
-                race = tostring(self.playerInfo.race or ""),
-                class = tostring(self.playerInfo.class or ""),
-                level = tonumber(self.playerInfo.level) or 0,
-                fullName = tostring(self.playerInfo.fullName or playerName),
-                groupId = group.id
-            }
-            self:Print("DEBUG: InviteRequest table:")
-            for k, v in pairs(inviteRequest) do
-                self:Print("  " .. k .. "=" .. tostring(v))
-            end
-            local AceSerializer = LibStub("AceSerializer-3.0")
-            local payload = AceSerializer:Serialize(inviteRequest)
-            self:Print("DEBUG: Sending invite request via AceComm to " .. group.leader)
-            self:SendComm("AUTOJOIN", payload, "WHISPER", group.leader)
-        end)
-        buttonGroup:AddChild(autoJoinButton)
         -- Role dropdown to the right of Auto-Join button
         local groupRoleDropdown = AceGUI:Create("Dropdown")
         groupRoleDropdown:SetLabel("Role")
@@ -1765,6 +1760,78 @@ function Grouper:CreateGroupManageFrame(group, tabType)
             self:Print("DEBUG: Group frame role set to " .. tostring(value))
         end)
         buttonGroup:AddChild(groupRoleDropdown)
+
+        local autoJoinButton = AceGUI:Create("Button")
+        autoJoinButton:SetText("Auto-Join")
+        autoJoinButton:SetWidth(120)
+        autoJoinButton:SetCallback("OnClick", function()
+            self:Print("DEBUG: Auto-Join button clicked!")
+            self:Print(string.format("DEBUG: Group leader: %s", group.leader))
+            local playerName = UnitName("player")
+            local fullPlayerName = Grouper.GetFullPlayerName(playerName)
+            -- Set role from dropdown into cache before anything else
+            local role = groupRoleDropdown:GetValue()
+            -- Ensure self.playerInfo exists and update role
+            if not self.playerInfo then
+                self.playerInfo = {
+                    fullName = fullPlayerName,
+                    name = playerName,
+                    class = select(2, UnitClass("player")) or "?",
+                    race = select(2, UnitRace("player")) or "?",
+                    level = UnitLevel("player") or 0,
+                    role = role
+                }
+            else
+                self.playerInfo.role = role
+            end
+            -- Update both Name and FullName keys in self.players
+            if self.players then
+                -- Update by Name
+                if self.players[playerName] then
+                    self.players[playerName].role = role
+                    self.players[playerName].fullName = fullPlayerName
+                end
+                -- Update by FullName
+                if self.players[fullPlayerName] then
+                    self.players[fullPlayerName].role = role
+                    self.players[fullPlayerName].name = playerName
+                end
+            end
+            -- Update non-leader cache on join
+            self:HandleNonLeaderCache("join", fullPlayerName, group.id)
+            -- Ensure both keys are set after join logic
+            if self.players then
+                if self.players[playerName] then
+                    self.players[playerName].role = role
+                    self.players[playerName].fullName = fullPlayerName
+                end
+                if self.players[fullPlayerName] then
+                    self.players[fullPlayerName].role = role
+                    self.players[fullPlayerName].name = playerName
+                end
+            end
+            -- Build a string payload: "INVITE_REQUEST|requester|timestamp|race|class|level|fullName|myRole"
+            local inviteRequest = {
+                type = "INVITE_REQUEST",
+                requester = tostring(playerName),
+                timestamp = time(),
+                race = tostring(self.playerInfo.race or ""),
+                class = tostring(self.playerInfo.class or ""),
+                level = tonumber(self.playerInfo.level) or 0,
+                fullName = tostring(self.playerInfo.fullName or playerName),
+                groupId = group.id,
+                myRole = role
+            }
+            self:Print("DEBUG: InviteRequest table:")
+            for k, v in pairs(inviteRequest) do
+                self:Print("  " .. k .. "=" .. tostring(v))
+            end
+            local AceSerializer = LibStub("AceSerializer-3.0")
+            local payload = AceSerializer:Serialize(inviteRequest)
+            self:Print("DEBUG: Sending invite request via AceComm to " .. group.leader)
+            self:SendComm("AUTOJOIN", payload, "WHISPER", group.leader)
+        end)
+        buttonGroup:AddChild(autoJoinButton)
     else
         local editButton = AceGUI:Create("Button")
         editButton:SetText("Edit")
@@ -1801,6 +1868,7 @@ end
 function Grouper:RefreshGroupList(tabType)
     self:Print(string.rep("-", 40))
     self:Print("DEBUG: [RefreshGroupList] called")
+    -- (Reverted) Do NOT update self.players/self.playerInfo from WoW API on UI open. Initialization only.
     if not self.groupsScrollFrame then
         self:Print("DEBUG: [RefreshGroupList] groupsScrollFrame is nil")
         return

@@ -1616,9 +1616,14 @@ function Grouper:OnAutoJoinRequest(prefix, message, distribution, sender)
         fullName = inviteRequest.fullName,
         lastSeen = inviteRequest.timestamp,
         version = ADDON_VERSION,
-        groupId = inviteRequest.groupId or inviteRequest.groupID or inviteRequest.group_id or nil
+        groupId = inviteRequest.groupId or inviteRequest.groupID or inviteRequest.group_id or nil,
+        role = inviteRequest.myRole or inviteRequest.role or nil,
+        leader = false
     }
-    self.players[inviteRequest.requester] = info
+    -- Only update the canonical fullName key
+    if inviteRequest.fullName then
+        self.players[inviteRequest.fullName] = info
+    end
     if self.db.profile.debug.enabled then
         self:Print(string.format("DEBUG: Cached playerInfo for %s from autojoin: Class: %s | Race: %s | Level: %s | FullName: %s", info.name or "", info.class or "", info.race or "", info.level or "", info.fullName or inviteRequest.requester))
     end
