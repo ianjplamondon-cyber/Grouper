@@ -1616,7 +1616,7 @@ function Grouper:CreateGroupManageFrame(group, tabType)
     local membersGroup = AceGUI:Create("InlineGroup")
     membersGroup:SetTitle("Party Members")
     membersGroup:SetFullWidth(true)
-    membersGroup:SetLayout("Flow")
+    membersGroup:SetLayout("List")
     -- WoW class colors
     local CLASS_COLORS = {
         WARRIOR = "C79C6E", PALADIN = "F58CBA", HUNTER = "ABD473", ROGUE = "FFF569", PRIEST = "FFFFFF",
@@ -1625,23 +1625,43 @@ function Grouper:CreateGroupManageFrame(group, tabType)
     }
     local CLASS_NAMES = { [1]="WARRIOR", [2]="PALADIN", [3]="HUNTER", [4]="ROGUE", [5]="PRIEST", [6]="DEATHKNIGHT", [7]="SHAMAN", [8]="MAGE", [9]="WARLOCK", [10]="DRUID", [11]="MONK", [12]="DEMONHUNTER", [13]="EVOKER" }
     local RACE_NAMES = { [1]="Human", [2]="Orc", [3]="Dwarf", [4]="NightElf", [5]="Undead", [6]="Tauren", [7]="Gnome", [8]="Troll", [9]="Goblin", [10]="BloodElf", [11]="Draenei", [12]="Worgen", [13]="Pandaren" }
-    -- Display all members from group.members
-    if group.members and #group.members > 0 then
-        for _, member in ipairs(group.members) do
+    if group.type == "dungeon" then
+        -- Always display 5 member slots for dungeons
+        local maxSpots = 5
+        for i = 1, maxSpots do
             local label = AceGUI:Create("Label")
             label:SetWidth(250)
-            local className = member.class or (member.classId and CLASS_NAMES[member.classId]) or "PRIEST"
-            local raceName = member.race or (member.raceId and RACE_NAMES[member.raceId]) or "Human"
-            local color = CLASS_COLORS[string.upper(className)] or "FFFFFF"
+            if group.members and group.members[i] then
+                local member = group.members[i]
+                local className = member.class or (member.classId and CLASS_NAMES[member.classId]) or "PRIEST"
+                local raceName = member.race or (member.raceId and RACE_NAMES[member.raceId]) or "Human"
+                local color = CLASS_COLORS[string.upper(className)] or "FFFFFF"
                 local roleText = member.role or "?"
                 label:SetText(string.format("|cff%s%s|r | %s | %s | %s | %d", color, member.name or "?", className, roleText, raceName, member.level or 0))
+            else
+                label:SetText("- Empty Slot -")
+            end
             membersGroup:AddChild(label)
         end
     else
-        local label = AceGUI:Create("Label")
-        label:SetWidth(250)
-        label:SetText("No members found.")
-        membersGroup:AddChild(label)
+        -- Original logic for non-dungeon types
+        if group.members and #group.members > 0 then
+            for _, member in ipairs(group.members) do
+                local label = AceGUI:Create("Label")
+                label:SetWidth(250)
+                local className = member.class or (member.classId and CLASS_NAMES[member.classId]) or "PRIEST"
+                local raceName = member.race or (member.raceId and RACE_NAMES[member.raceId]) or "Human"
+                local color = CLASS_COLORS[string.upper(className)] or "FFFFFF"
+                local roleText = member.role or "?"
+                label:SetText(string.format("|cff%s%s|r | %s | %s | %s | %d", color, member.name or "?", className, roleText, raceName, member.level or 0))
+                membersGroup:AddChild(label)
+            end
+        else
+            local label = AceGUI:Create("Label")
+            label:SetWidth(250)
+            label:SetText("No members found.")
+            membersGroup:AddChild(label)
+        end
     end
     frame:AddChild(membersGroup)
 
