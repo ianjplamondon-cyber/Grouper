@@ -1552,9 +1552,21 @@ function Grouper:CreateCreateTab(container)
         healer = "Healer",
         dps = "DPS"
     })
-    roleDropdown:SetValue("dps")
+    -- Restore last selected role from SV if available
+    local lastRole = self.db and self.db.profile and self.db.profile.lastRole
+    if lastRole and (lastRole == "tank" or lastRole == "healer" or lastRole == "dps") then
+        roleDropdown:SetValue(lastRole)
+    else
+        roleDropdown:SetValue("dps")
+    end
     roleDropdown:SetFullWidth(true)
     scrollFrame:AddChild(roleDropdown)
+    -- Save role to SV on change
+    roleDropdown:SetCallback("OnValueChanged", function(widget, event, value)
+        if self.db and self.db.profile then
+            self.db.profile.lastRole = value
+        end
+    end)
     
     -- Create button
     local createButton = AceGUI:Create("Button")
@@ -1585,6 +1597,10 @@ function Grouper:CreateCreateTab(container)
             myRole = roleDropdown:GetValue(),
             dungeons = selectedDungeons
         }
+        -- Persist last selected role in SV
+        if self.db and self.db.profile then
+            self.db.profile.lastRole = roleDropdown:GetValue()
+        end
         
         if groupData.title == "" then
             self:Print("Please enter a group title!")

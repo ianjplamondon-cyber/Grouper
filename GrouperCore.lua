@@ -254,17 +254,28 @@ function Grouper:OnInitialize()
         local level = UnitLevel("player")
         local realm = GetRealmName() or ""
         local fullName = name .. "-" .. realm
-        local info = {
-            name = name,
-            class = class,
-            race = race,
-            level = level,
-            fullName = fullName,
-            lastSeen = time(),
-            version = ADDON_VERSION
-        }
-        self.playerInfo = info
-        self.players[name] = info
+        local lastRole = self.db and self.db.profile and self.db.profile.lastRole
+        -- Only update role if entry exists, do not create duplicate
+        local info = self.players[fullName] or self.players[name]
+        if info then
+            if lastRole and (lastRole == "tank" or lastRole == "healer" or lastRole == "dps") then
+                info.role = lastRole
+            end
+            self.playerInfo = info
+        else
+            local newInfo = {
+                name = name,
+                class = class,
+                race = race,
+                level = level,
+                fullName = fullName,
+                lastSeen = time(),
+                version = ADDON_VERSION,
+                role = (lastRole and (lastRole == "tank" or lastRole == "healer" or lastRole == "dps")) and lastRole or nil
+            }
+            self.playerInfo = newInfo
+            self.players[fullName] = newInfo
+        end
     end
 
     -- Register chat commands
