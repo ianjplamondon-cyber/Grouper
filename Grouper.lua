@@ -145,6 +145,11 @@ function Grouper:HandleJoinedGroup()
     for groupId, group in pairs(self.groups) do
         group.members = {}
         local leaderFound = false
+        local function CamelCaseRole(role)
+            if not role or role == "None" or role == "?" then return role end
+            if role:lower() == "dps" then return "DPS" end
+            return role:sub(1,1):upper() .. role:sub(2):lower()
+        end
         if self.players then
             local groupLeader = group.leader
             for playerKey, playerInfo in pairs(self.players) do
@@ -161,7 +166,7 @@ function Grouper:HandleJoinedGroup()
                         table.insert(group.members, {
                             name = playerInfo.fullName,
                             class = playerInfo.class or "?",
-                            role = playerInfo.role or "?",
+                            role = CamelCaseRole(playerInfo.role or "?"),
                             race = playerInfo.race or "?",
                             level = playerInfo.level or "?",
                             leader = playerInfo.leader
@@ -184,7 +189,7 @@ function Grouper:HandleJoinedGroup()
                 table.insert(group.members, {
                     name = groupLeader,
                     class = leaderInfo and leaderInfo.class or UnitClass("player") or "?",
-                    role = myRole or "?",
+                    role = CamelCaseRole(myRole or "?"),
                     race = leaderInfo and leaderInfo.race or UnitRace("player") or "?",
                     level = leaderInfo and leaderInfo.level or UnitLevel("player") or "?",
                     leader = true
