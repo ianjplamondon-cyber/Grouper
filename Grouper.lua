@@ -1788,10 +1788,18 @@ function Grouper:CreateGroupManageFrame(group, tabType)
             healer = "Healer",
             dps = "DPS"
         })
-        groupRoleDropdown:SetValue("dps")
+        -- Restore last selected role from SV if available
+        local lastRole = self.db and self.db.profile and self.db.profile.lastRole
+        if lastRole and (lastRole == "tank" or lastRole == "healer" or lastRole == "dps") then
+            groupRoleDropdown:SetValue(lastRole)
+        else
+            groupRoleDropdown:SetValue("dps")
+        end
         groupRoleDropdown:SetWidth(100)
         groupRoleDropdown:SetCallback("OnValueChanged", function(widget, event, value)
-            self.db.profile.groupFrameRole = value
+            if self.db and self.db.profile then
+                self.db.profile.lastRole = value
+            end
             self:Print("DEBUG: Group frame role set to " .. tostring(value))
         end)
         buttonGroup:AddChild(groupRoleDropdown)
@@ -1806,6 +1814,10 @@ function Grouper:CreateGroupManageFrame(group, tabType)
             local fullPlayerName = Grouper.GetFullPlayerName(playerName)
             -- Set role from dropdown into cache before anything else
             local role = groupRoleDropdown:GetValue()
+            -- Persist last selected role in SV
+            if self.db and self.db.profile then
+                self.db.profile.lastRole = role
+            end
             -- Ensure self.playerInfo exists and update role
             if not self.playerInfo then
                 self.playerInfo = {
@@ -1827,9 +1839,9 @@ function Grouper:CreateGroupManageFrame(group, tabType)
                     self.players[playerName].fullName = fullPlayerName
                 end
                 -- Update by FullName
-                if self.players[fullPlayerName] then
-                    self.players[fullPlayerName].role = role
-                    self.players[fullPlayerName].name = playerName
+                if self.players[fullName] then
+                    self.players[fullName].role = role
+                    self.players[fullName].name = playerName
                 end
             end
             -- Update non-leader cache on join
@@ -1840,9 +1852,9 @@ function Grouper:CreateGroupManageFrame(group, tabType)
                     self.players[playerName].role = role
                     self.players[playerName].fullName = fullPlayerName
                 end
-                if self.players[fullPlayerName] then
-                    self.players[fullPlayerName].role = role
-                    self.players[fullPlayerName].name = playerName
+                if self.players[fullName] then
+                    self.players[fullName].role = role
+                    self.players[fullName].name = playerName
                 end
             end
             -- Build a string payload: "INVITE_REQUEST|requester|timestamp|race|class|level|fullName|myRole"
