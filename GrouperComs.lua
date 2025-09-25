@@ -2119,3 +2119,34 @@ function Grouper:SendComm(messageType, data, distribution, target, priority)
     return originalSendComm(self, messageType, data, distribution, target, priority)
 end
 
+-- Send GROUP_REMOVE message via direct channel
+function Grouper:SendGroupRemoveViaChannel(data)
+    -- Use direct channel messaging for GROUP_REMOVE
+    local channelIndex = self:GetGrouperChannelIndex()
+    if channelIndex <= 0 then
+        if self.db.profile.debug.enabled then
+            self:Print("DEBUG: ✗ Cannot send GROUP_REMOVE - not in Grouper channel")
+        end
+        return false
+    end
+    
+    -- Create simple GROUP_REMOVE message: GRPR_GROUP_REMOVE:groupId:leader:timestamp
+    local message = string.format("GRPR_GROUP_REMOVE:%s:%s:%d",
+        data.id or "",
+        UnitName("player"),
+        time()
+    )
+    
+    if self.db.profile.debug.enabled then
+        self:Print(string.format("DEBUG: ⚡ Sending GROUP_REMOVE via direct channel %d: %s", channelIndex, message))
+    end
+    
+    -- Send via direct channel message
+    SendChatMessage(message, "CHANNEL", nil, channelIndex)
+    
+    if self.db.profile.debug.enabled then
+        self:Print("DEBUG: ✓ GROUP_REMOVE sent via direct channel")
+    end
+    
+    return true
+end

@@ -231,7 +231,54 @@ local defaults = {
  
 }
 
-                 
+-- Setup options/config
+function Grouper:SetupOptions()
+    local options = {
+        name = ADDON_NAME,
+        type = "group",
+        args = {
+            general = {
+                name = "General",
+                type = "group",
+                order = 1,
+                args = {
+                    minimap = {
+                        name = "Minimap Icon",
+                        desc = "Toggle the minimap icon",
+                        type = "toggle",
+                        set = function(info, val)
+                            self.db.profile.minimap.hide = not val
+                            if val then
+                                LibDBIcon:Show(ADDON_NAME)
+                            else
+                                LibDBIcon:Hide(ADDON_NAME)
+                            end
+                        end,
+                        get = function(info) return not self.db.profile.minimap.hide end,
+                    },
+                },
+            },
+            notifications = {
+                name = "Notifications",
+                type = "group",
+                order = 2,
+                args = {
+                    newGroups = {
+                        name = "New Groups",
+                        desc = "Show notification when new groups are posted",
+                        type = "toggle",
+                        set = function(info, val) self.db.profile.notifications.newGroups = val end,
+                        get = function(info) return self.db.profile.notifications.newGroups end,
+                    },
+                },
+            },
+            
+        },
+    }
+    
+    AceConfig:RegisterOptionsTable(ADDON_NAME, options)
+    AceConfigDialog:AddToBlizOptions(ADDON_NAME)
+end               
 
 function Grouper:OnInitialize()
     -- Initialize database
