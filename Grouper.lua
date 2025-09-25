@@ -1092,7 +1092,7 @@ function Grouper:CreateBrowseTab(container)
         healer = "Healer",
         dps = "DPS"
     })
-    roleFilterDropdown:SetValue("dps")
+    roleFilterDropdown:SetValue(self.db.profile.filters.role or "dps")
     roleFilterDropdown:SetWidth(120)
     roleFilterDropdown:SetCallback("OnValueChanged", function(widget, event, value)
         self.db.profile.filters.role = value
