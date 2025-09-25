@@ -472,7 +472,7 @@ function Grouper:HandleDirectGroupUpdate(message, sender)
     if self.db.profile.debug.enabled then
         Grouper:Print(string.format("DEBUG: [HandleDirectGroupUpdate] raw membersEncoded: '%s'", membersEncoded))
         local memberCount = 0
-        for _ in string.gmatch(membersEncoded, "[^|]+") do memberCount = memberCount + 1 end
+        for _ in string.gmatch(membersEncoded, "[^;]+") do memberCount = memberCount + 1 end
         Grouper:Print(string.format("DEBUG: [HandleDirectGroupUpdate] parsed member count: %d", memberCount))
     end
     if self.db.profile.debug.enabled then

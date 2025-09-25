@@ -1000,6 +1000,15 @@ function Grouper:CreateMainWindowContent()
     mainContainer:AddChild(tabGroup)
     
     self.tabGroup = tabGroup
+
+    -- Initialize groupsScrollFrame so it's available for RefreshGroupList
+    if not self.groupsScrollFrame then
+        local groupsScrollFrame = AceGUI:Create("ScrollFrame")
+        groupsScrollFrame:SetFullWidth(true)
+        groupsScrollFrame:SetFullHeight(true)
+        groupsScrollFrame:SetLayout("List")
+        self.groupsScrollFrame = groupsScrollFrame
+    end
 end
 
 -- Show the selected tab content
@@ -1759,7 +1768,6 @@ end
 function Grouper:RefreshGroupList(tabType)
     self:Print(string.rep("-", 40))
     self:Print("DEBUG: [RefreshGroupList] called")
-    -- (Reverted) Do NOT update self.players/self.playerInfo from WoW API on UI open. Initialization only.
     if not self.groupsScrollFrame then
         self:Print("DEBUG: [RefreshGroupList] groupsScrollFrame is nil")
         return
