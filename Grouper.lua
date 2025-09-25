@@ -1248,9 +1248,9 @@ function Grouper:CreateCreateTab(container)
     typeDropdown:SetLabel("Event Type")
     typeDropdown:SetList({
         dungeon = "Dungeon",
-        raid = "Raid",
+        --raid = "Raid",
         quest = "Quest",
-        pvp = "PvP",
+        --pvp = "PvP",
         other = "Other"
     })
     typeDropdown:SetValue("dungeon") -- Default to dungeon
@@ -1496,10 +1496,10 @@ function Grouper:CreateCreateTab(container)
             description = "", -- No longer used
             type = selectedType or "dungeon",
             typeId = typeId,
-            minLevel = tonumber(minLevelEdit:GetText()) or 15,
-            maxLevel = tonumber(maxLevelEdit:GetText()) or 25,
-            currentSize = tonumber(currentSizeEdit:GetText()) or 1,
-            maxSize = tonumber(maxSizeEdit:GetText()) or 5,
+            --minLevel = tonumber(minLevelEdit:GetText()) or 15,
+            --maxLevel = tonumber(maxLevelEdit:GetText()) or 25,
+            --currentSize = tonumber(currentSizeEdit:GetText()) or 1,
+            --maxSize = tonumber(maxSizeEdit:GetText()) or 5,
             location = locationEdit:GetText(),
             myRole = roleDropdown:GetValue(),
             dungeons = selectedDungeons
