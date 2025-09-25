@@ -1129,10 +1129,6 @@ function Grouper:CreateBrowseTab(container)
         checkbox:SetLabel(typeInfo.label)
         checkbox:SetValue(self.db.profile.filters.dungeonTypes[typeInfo.key])
         checkbox:SetWidth(85) -- Reduced from 100 to make more compact
-        if typeInfo.key == "raid" or typeInfo.key == "pvp" then
-            checkbox:SetDisabled(true)
-            --checkbox:SetDescription("Not implemented yet")
-        end
         checkbox:SetCallback("OnValueChanged", function(widget, event, value)
             self.db.profile.filters.dungeonTypes[typeInfo.key] = value
             self:RefreshGroupList()
@@ -1248,15 +1244,15 @@ function Grouper:CreateCreateTab(container)
     typeDropdown:SetLabel("Event Type")
     typeDropdown:SetList({
         dungeon = "Dungeon",
-        --raid = "Raid",
+        raid = "Raid",
         quest = "Quest",
-        --pvp = "PvP",
+        pvp = "PvP",
         other = "Other"
     })
     typeDropdown:SetValue("dungeon") -- Default to dungeon
     typeDropdown:SetFullWidth(true)
     scrollFrame:AddChild(typeDropdown)
-    --[[
+    
     -- Level range (move before dungeon selection so it's in scope)
     local levelGroup = AceGUI:Create("SimpleGroup")
     levelGroup:SetLayout("Flow")
@@ -1274,7 +1270,7 @@ function Grouper:CreateCreateTab(container)
     maxLevelEdit:SetText("25") -- Default for dungeons  
     maxLevelEdit:SetWidth(100)
     levelGroup:AddChild(maxLevelEdit)
-    --]]
+    
     -- Dungeon selection (multi-select) - filtered by type dropdown
     local dungeonGroup = AceGUI:Create("InlineGroup")
     dungeonGroup:SetTitle("Select Dungeons/Raids/Battlegrounds")
@@ -1359,8 +1355,8 @@ function Grouper:CreateCreateTab(container)
                             end
                         else
                             -- For non-battlegrounds, just update level range normally
-                            minLevelEdit:SetText(tostring(dungeon.minLevel))
-                            maxLevelEdit:SetText(tostring(dungeon.maxLevel))
+                            --minLevelEdit:SetText(tostring(dungeon.minLevel))
+                            --maxLevelEdit:SetText(tostring(dungeon.maxLevel))
                         end
                     else
                         selectedDungeons[dungeon.name] = nil
@@ -1424,7 +1420,7 @@ function Grouper:CreateCreateTab(container)
     
     -- Initialize dungeon list
     updateDungeonList()
-    --[[
+    
     -- Group size
     local sizeGroup = AceGUI:Create("SimpleGroup")
     sizeGroup:SetLayout("Flow")
@@ -1442,7 +1438,7 @@ function Grouper:CreateCreateTab(container)
     maxSizeEdit:SetText("5")
     maxSizeEdit:SetWidth(100)
     sizeGroup:AddChild(maxSizeEdit)
-    --]]
+    
     -- Location
     local locationEdit = AceGUI:Create("EditBox")
     locationEdit:SetLabel("Location/Meeting Point (max 20 chars)")
