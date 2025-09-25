@@ -386,6 +386,14 @@ end)
 
 -- Group management functions
 function Grouper:CreateGroup(groupData)
+    -- Prevent creating a second group if player already has one
+    local playerFullName = Grouper.GetFullPlayerName(UnitName("player"))
+    for _, group in pairs(self.groups or {}) do
+        if group.leader == playerFullName then
+            self:Print("Error: You’ve already formed a group. This isn’t Orgrimmar Trade Chat — you can’t just spam invites forever.")
+            return nil
+        end
+    end
     -- Encode type as number if not already encoded: 1=Dungeon, 2=Raid, 3=Quest, 4=PvP, 5=Other
     local typeId = groupData.typeId
     if not typeId then
