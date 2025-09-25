@@ -1516,10 +1516,9 @@ function Grouper:CreateGroupManageFrame(group, tabType)
         end
     end
     local dungeonsText = #dungeonNames > 0 and table.concat(dungeonNames, ", ") or "-"
-    infoLabel:SetText(string.format("Type: %s | Dungeons: %s | Level: %d-%d | Size: %d/%d\nLocation: %s\nDescription: %s",
+    infoLabel:SetText(string.format("Type: %s | Dungeons: %s | Level: %d-%d | Size: %d/%d\nMeeting Point: %s",
         group.type, dungeonsText, group.minLevel, group.maxLevel, group.currentSize, group.maxSize,
-        group.location ~= "" and group.location or "Not specified",
-        group.description ~= "" and group.description or "No description"))
+        group.location ~= "" and group.location or "Not specified"))
     infoLabel:SetFullWidth(true)
     frame:AddChild(infoLabel)
     
