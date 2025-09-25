@@ -1256,7 +1256,7 @@ function Grouper:CreateCreateTab(container)
     typeDropdown:SetValue("dungeon") -- Default to dungeon
     typeDropdown:SetFullWidth(true)
     scrollFrame:AddChild(typeDropdown)
-    
+    --[[
     -- Level range (move before dungeon selection so it's in scope)
     local levelGroup = AceGUI:Create("SimpleGroup")
     levelGroup:SetLayout("Flow")
@@ -1274,7 +1274,7 @@ function Grouper:CreateCreateTab(container)
     maxLevelEdit:SetText("25") -- Default for dungeons  
     maxLevelEdit:SetWidth(100)
     levelGroup:AddChild(maxLevelEdit)
-    
+    --]]
     -- Dungeon selection (multi-select) - filtered by type dropdown
     local dungeonGroup = AceGUI:Create("InlineGroup")
     dungeonGroup:SetTitle("Select Dungeons/Raids/Battlegrounds")
@@ -1424,7 +1424,7 @@ function Grouper:CreateCreateTab(container)
     
     -- Initialize dungeon list
     updateDungeonList()
-    
+    --[[
     -- Group size
     local sizeGroup = AceGUI:Create("SimpleGroup")
     sizeGroup:SetLayout("Flow")
@@ -1442,7 +1442,7 @@ function Grouper:CreateCreateTab(container)
     maxSizeEdit:SetText("5")
     maxSizeEdit:SetWidth(100)
     sizeGroup:AddChild(maxSizeEdit)
-    
+    --]]
     -- Location
     local locationEdit = AceGUI:Create("EditBox")
     locationEdit:SetLabel("Location/Meeting Point (max 20 chars)")
