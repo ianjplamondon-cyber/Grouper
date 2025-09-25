@@ -1088,11 +1088,12 @@ function Grouper:CreateBrowseTab(container)
     local roleFilterDropdown = AceGUI:Create("Dropdown")
     roleFilterDropdown:SetLabel("Filter by Role")
     roleFilterDropdown:SetList({
+        any = "Any",
         tank = "Tank",
         healer = "Healer",
         dps = "DPS"
     })
-    roleFilterDropdown:SetValue(self.db.profile.filters.role or "dps")
+    roleFilterDropdown:SetValue(self.db.profile.filters.role or "any")
     roleFilterDropdown:SetWidth(120)
     roleFilterDropdown:SetCallback("OnValueChanged", function(widget, event, value)
         self.db.profile.filters.role = value
