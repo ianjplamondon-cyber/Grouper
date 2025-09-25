@@ -571,12 +571,14 @@ function Grouper:CreateGroup(groupData)
     if self.db and self.db.profile and self.db.profile.debug and self.db.profile.debug.enabled then
         self:Print(string.format("DEBUG: [CreateGroup] About to SendComm GROUP_UPDATE for groupId=%s, title=%s", group.id, group.title))
     end
+    --[[
     self:SendComm("GROUP_UPDATE", group)
     self:Print(string.format("Created group: %s", group.title))
     -- Immediately refresh the UI so the new group appears
     if self.mainFrame and self.mainFrame:IsShown() then
         self:RefreshGroupList()
     end
+    --]]
     return group
 end
 
@@ -1779,6 +1781,18 @@ function Grouper:CreateGroupManageFrame(group, tabType)
             local payload = AceSerializer:Serialize(inviteRequest)
             self:Print("DEBUG: Sending invite request via AceComm to " .. group.leader)
             self:SendComm("AUTOJOIN", payload, "WHISPER", group.leader)
+               -- Also refresh My Groups tab if currently selected
+               if self.tabGroup and self.tabGroup:GetSelectedTab() == "manage" then
+                   self:RefreshGroupList("manage")
+                   -- Force full UI redraw of My Groups tab
+                   if self.mainFrame then
+                       self:ShowTab(self.mainFrame, "manage")
+                   end
+               end
+               -- Refresh My Groups tab if currently selected
+               if self.tabGroup and self.tabGroup:GetSelectedTab() == "manage" then
+                   self:RefreshGroupList("manage")
+               end
         end)
         buttonGroup:AddChild(autoJoinButton)
     else
@@ -1807,6 +1821,14 @@ function Grouper:CreateGroupManageFrame(group, tabType)
         syncButton:SetCallback("OnClick", function()
             self:Print("DEBUG: Sync button clicked! Broadcasting group update...")
             Grouper:SendGroupUpdateViaChannel(group)
+               -- Also refresh My Groups tab if currently selected
+               if self.tabGroup and self.tabGroup:GetSelectedTab() == "manage" then
+                   self:RefreshGroupList("manage")
+               end
+               -- Refresh My Groups tab if currently selected
+               if self.tabGroup and self.tabGroup:GetSelectedTab() == "manage" then
+                   self:RefreshGroupList("manage")
+               end
         end)
         buttonGroup:AddChild(syncButton)
     end

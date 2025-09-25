@@ -1662,9 +1662,19 @@ function Grouper:OnAutoJoinRequest(prefix, message, distribution, sender)
     if self.db.profile.debug.enabled then
         self:Print(string.format("DEBUG: Cached playerInfo for %s from autojoin: Class: %s | Race: %s | Level: %s | FullName: %s", info.name or "", info.class or "", info.race or "", info.level or "", info.fullName or inviteRequest.requester))
     end
-    -- Refresh party frame if open
-    if self.mainFrame and self.mainFrame:IsShown() then
-        self:RefreshGroupList()
+    -- Force full UI rebuild of the 'manage' tab after auto-join
+    if self.mainFrame and self.mainFrame:IsShown() and self.tabGroup then
+        self:Print("DEBUG: About to call self.tabGroup:SelectTab('manage') after auto-join")
+        local success, err = pcall(function()
+            self.tabGroup:SelectTab("manage")
+        end)
+        if success then
+            self:Print("DEBUG: self.tabGroup:SelectTab('manage') called successfully")
+        else
+            self:Print("ERROR: self.tabGroup:SelectTab('manage') failed: " .. tostring(err))
+        end
+    else
+        self:Print("DEBUG: mainFrame or tabGroup not ready for SelectTab('manage') after auto-join")
     end
     local inviteName = inviteRequest.fullName or inviteRequest.requester
     if self.db.profile.debug.enabled then
