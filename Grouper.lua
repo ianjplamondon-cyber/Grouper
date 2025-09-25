@@ -662,15 +662,6 @@ function Grouper:HandleGroupUpdate(groupData, sender)
     end
     -- Now proceed with group filtering and storage
     if Grouper.GetFullPlayerName(groupData.leader) == Grouper.GetFullPlayerName(sender) then
-        -- Remove stale groups led by the same leader before adding the new group
-        for groupId, group in pairs(self.groups) do
-            if group.leader == groupData.leader and groupId ~= groupData.id then
-                self.groups[groupId] = nil
-                if self.db and self.db.profile and self.db.profile.debug and self.db.profile.debug.enabled then
-                    self:Print(string.format("DEBUG: [HandleGroupUpdate] Removed stale group %s led by %s", groupId, groupData.leader))
-                end
-            end
-        end
         self.groups[groupData.id] = groupData
         -- Update player cache with groupId if local player is the leader
         local localPlayer = Grouper.GetFullPlayerName(UnitName("player"))

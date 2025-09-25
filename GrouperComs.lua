@@ -1622,9 +1622,9 @@ function Grouper:OnAutoJoinRequest(prefix, message, distribution, sender)
             end
         end
     end
-    local isLeader = group and group.leader == Grouper.GetFullPlayerName(UnitName("player"))
     if requestedRole == "tank" and tankExists then
-        if isLeader and inviteRequest.requester then
+        -- Send error message to requester, do not invite
+        if distribution == "WHISPER" and inviteRequest.requester then
             SendChatMessage("Error: This group already has a tank. Did you think this was Alterac Valley?", "WHISPER", nil, inviteRequest.requester)
         end
         if self.db.profile.debug.enabled then
@@ -1633,7 +1633,8 @@ function Grouper:OnAutoJoinRequest(prefix, message, distribution, sender)
         return
     end
     if requestedRole == "healer" and healerExists then
-        if isLeader and inviteRequest.requester then
+        -- Send error message to requester, do not invite
+        if distribution == "WHISPER" and inviteRequest.requester then
             SendChatMessage("Error: This group already has a healer. Two healers in a 5-man? What is this, Molten Core?", "WHISPER", nil, inviteRequest.requester)
         end
         if self.db.profile.debug.enabled then
