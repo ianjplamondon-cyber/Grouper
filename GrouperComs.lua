@@ -1607,6 +1607,29 @@ function Grouper:OnAutoJoinRequest(prefix, message, distribution, sender)
     for k, v in pairs(inviteRequest) do
         self:Print("  " .. k .. "=" .. tostring(v))
     end
+    -- Check for duplicate tank in group
+    local groupId = inviteRequest.groupId or inviteRequest.groupID or inviteRequest.group_id
+    local requestedRole = (inviteRequest.myRole or inviteRequest.role or ""):lower()
+    local group = self.groups and groupId and self.groups[groupId] or nil
+    local tankExists = false
+    if group and group.members then
+        for _, member in ipairs(group.members) do
+            if member.role and member.role:lower() == "tank" then
+                tankExists = true
+                break
+            end
+        end
+    end
+    if requestedRole == "tank" and tankExists then
+        -- Send error message to requester, do not invite
+        if distribution == "WHISPER" and inviteRequest.requester then
+            SendChatMessage("Error: This group already has a tank.", "WHISPER", nil, inviteRequest.requester)
+        end
+        if self.db.profile.debug.enabled then
+            self:Print("DEBUG: Blocked duplicate tank invite for " .. tostring(inviteRequest.requester))
+        end
+        return
+    end
     -- Cache the playerInfo
     local info = {
         name = inviteRequest.requester,
