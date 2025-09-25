@@ -509,3 +509,227 @@ Grouper:RegisterChatCommand("groupercp", function()
     end
     Grouper:Print("==== End Grouper Debug Cache Print ====")
 end)
+
+-- Slash command to test AceComm WHISPER delivery
+SLASH_GROUPERTESTCOMM1 = "/groupertestcomm"
+function SlashCmdList.GROUPERTESTCOMM(msg)
+    local target = msg:match("^%s*(.-)%s*$")
+    if not target or target == "" then
+        Grouper:Print("Usage: /grouper testcomm <player>")
+        return
+    end
+    Grouper:Print("DEBUG: Sending test AceComm WHISPER to " .. target)
+    local testMessage = {
+        type = "TEST",
+        sender = UnitName("player"),
+        timestamp = time(),
+        version = Grouper.ADDON_VERSION or "unknown",
+        data = { text = "Hello from Grouper testcomm!" }
+    }
+    Grouper:SendComm("TEST", testMessage, "WHISPER", target, "ALERT")
+end
+
+-- Persistent debug log using SavedVariables
+Grouper.DebugLog = Grouper.DebugLog or {}
+function Grouper:LogDebug(msg)
+    if type(msg) == "table" then
+        msg = tostring(msg)
+    end
+    local timestamp = date("%Y-%m-%d %H:%M:%S")
+    table.insert(self.DebugLog, string.format("[%s] %s", timestamp, msg))
+end
+
+-- Utility to get full player name with realm, always using exact realm format
+function Grouper.GetFullPlayerName(name)
+    if not name then return "" end
+    local realm = GetRealmName()
+    -- Remove spaces from realm name for consistency
+    realm = realm:gsub("%s", "")
+    if name:find("-") then
+        local base, r = name:match("^(.-)%-(.+)$")
+        if base and r then
+            r = r:gsub("%s", "")
+            return base .. "-" .. r
+        end
+        return name
+    end
+    return name .. "-" .. realm
+end
+
+-- Cancel repeating timers when the addon is disabled
+function Grouper:OnDisable()
+    -- Cancel specific timers when the addon is disabled
+    if self.presenceTimer then
+        self:CancelTimer(self.presenceTimer)
+        self.presenceTimer = nil
+    end
+    if self.cleanupTimer then
+        self:CancelTimer(self.cleanupTimer)
+        self.cleanupTimer = nil
+    end
+    if self.chunksCleanupTimer then
+        self:CancelTimer(self.chunksCleanupTimer)
+        self.chunksCleanupTimer = nil
+    end
+    if self.flushTimer then
+        self:CancelTimer(self.flushTimer)
+        self.flushTimer = nil
+    end
+    
+    if self.db.profile.debug.enabled then
+        self:Print("DEBUG: Addon disabled, repeating timers cancelled")
+    end
+end
+
+-- Get the Grouper channel index, caching it for future use  
+function Grouper:GetGrouperChannelIndex()
+    -- Use cached value if available
+    if self.grouperChannelNumber and self.grouperChannelNumber > 0 then
+        if self.db.profile.debug.enabled then
+            self:Print(string.format("DEBUG: Using cached channel number: %d", self.grouperChannelNumber))
+        end
+        return self.grouperChannelNumber
+    end
+    
+    -- Fallback to lookup and cache the result
+    local channelIndex = GetChannelName(ADDON_CHANNEL)
+    if channelIndex > 0 then
+        self.grouperChannelNumber = channelIndex
+        if self.db.profile.debug.enabled then
+            self:Print(string.format("DEBUG: Caching new channel number: %d", channelIndex))
+        end
+    end
+    
+    return channelIndex
+end
+
+-- Helper function to get table keys for debugging
+function Grouper:GetTableKeys(tbl)
+    local keys = {}
+    if type(tbl) == "table" then
+        for key, _ in pairs(tbl) do
+            table.insert(keys, tostring(key))
+        end
+    end
+    return keys
+end
+
+-- determine number of groups stored
+function Grouper:CountGroups()
+    local count = 0
+    for _ in pairs(self.groups) do
+        count = count + 1
+    end
+    return count
+end
+
+-- determine number of fields in a table
+function Grouper:CountTableFields(tbl)
+    local count = 0
+    for _ in pairs(tbl) do
+        count = count + 1
+    end
+    return count
+end
+
+-- Saves window position and size to the database
+function Grouper:SaveWindowPosition()
+    if self.mainFrame and self.mainFrame.frame then
+        local point, relativeTo, relativePoint, xOfs, yOfs = self.mainFrame.frame:GetPoint()
+        if point and relativePoint then
+            self.db.profile.ui.position.point = point
+            self.db.profile.ui.position.relativePoint = relativePoint
+            self.db.profile.ui.position.xOfs = xOfs or 0
+            self.db.profile.ui.position.yOfs = yOfs or 0
+            
+            -- Save window size
+            local width = self.mainFrame.frame:GetWidth()
+            local height = self.mainFrame.frame:GetHeight()
+            self.db.profile.ui.position.width = width
+            self.db.profile.ui.position.height = height
+
+            -- Force database save to ensure position and size are written to SavedVariables
+            if self.db.Flush then
+                self.db:Flush()
+            end
+
+            if self.db.profile.debug.enabled then
+                self:Print(string.format("DEBUG: Saved window position: %s %s %.0f %.0f, size: %.0f x %.0f", point, relativePoint, xOfs or 0, yOfs or 0, width or 0, height or 0))
+            end
+        end
+    end
+end
+
+-- Restores window position and size from the database
+function Grouper:RestoreWindowPosition()
+    if self.mainFrame and self.mainFrame.frame then
+        local pos = self.db.profile.ui.position
+        if pos.point and pos.relativePoint and pos.xOfs ~= nil and pos.yOfs ~= nil then
+            self.mainFrame.frame:ClearAllPoints()
+            self.mainFrame.frame:SetPoint(pos.point, UIParent, pos.relativePoint, pos.xOfs, pos.yOfs)
+            -- Restore window size if available
+            if pos.width and pos.height then
+                self.mainFrame.frame:SetWidth(pos.width)
+                self.mainFrame.frame:SetHeight(pos.height)
+            end
+            if self.db.profile.debug.enabled then
+                self:Print(string.format("DEBUG: Restored window position: %s %s %.0f %.0f, size: %.0f x %.0f", pos.point, pos.relativePoint, pos.xOfs, pos.yOfs, pos.width or 0, pos.height or 0))
+                -- Verify the position and size were actually set
+                local actualPoint, actualRelativeTo, actualRelativePoint, actualXOfs, actualYOfs = self.mainFrame.frame:GetPoint()
+                local actualWidth = self.mainFrame.frame:GetWidth()
+                local actualHeight = self.mainFrame.frame:GetHeight()
+                self:Print(string.format("DEBUG: Verified position after restore: %s %s %.0f %.0f, size: %.0f x %.0f", actualPoint or "nil", actualRelativePoint or "nil", actualXOfs or 0, actualYOfs or 0, actualWidth or 0, actualHeight or 0))
+            end
+        else
+            if self.db.profile.debug.enabled then
+                self:Print(string.format("DEBUG: Cannot restore position - missing data: point=%s, relativePoint=%s, xOfs=%s, yOfs=%s", 
+                    tostring(pos.point), tostring(pos.relativePoint), tostring(pos.xOfs), tostring(pos.yOfs)))
+            end
+        end
+    end
+end
+
+-- Save window position to DB
+function Grouper:SetupPositionSaving()
+    if self.mainFrame and self.mainFrame.frame then
+        -- Save position when frame is dragged
+        self.mainFrame.frame:SetScript("OnDragStop", function()
+            self:SaveWindowPosition()
+        end)
+        
+        -- Also save position when the frame is manually moved (backup method)
+        -- Use a simple timer-based position check
+        if not self.positionCheckTimer then
+            self.positionCheckTimer = self:ScheduleRepeatingTimer(function()
+                if self.mainFrame and self.mainFrame.frame then
+                    local currentPoint, _, currentRelativePoint, currentXOfs, currentYOfs = self.mainFrame.frame:GetPoint()
+                    local savedPos = self.db.profile.ui.position
+                    
+                    -- Check if position has changed significantly (more than 5 pixels)
+                    if currentPoint and savedPos.point and (
+                        currentPoint ~= savedPos.point or 
+                        currentRelativePoint ~= savedPos.relativePoint or
+                        math.abs((currentXOfs or 0) - (savedPos.xOfs or 0)) > 5 or
+                        math.abs((currentYOfs or 0) - (savedPos.yOfs or 0)) > 5
+                    ) then
+                        self:SaveWindowPosition()
+                    end
+                else
+                    -- Stop timer if frame doesn't exist
+                    if self.positionCheckTimer then
+                        self:CancelTimer(self.positionCheckTimer)
+                        self.positionCheckTimer = nil
+                    end
+                end
+            end, 1) -- Check every 1 second
+        end
+    end
+end
+
+
+
+
+Grouper.DebugLog = Grouper.DebugLog or {}
+Grouper.FunctionName = FunctionName
+Grouper.OnDisable = OnDisable
+GrouperUtilities = GrouperUtilities or {}

@@ -59,76 +59,8 @@ function Grouper:LeaderRemoveMemberFromCache(leftName)
         end
     end
 end
--- Persistent debug log using SavedVariables
-if not GrouperDebugLog then GrouperDebugLog = {} end
 
-function Grouper:LogDebug(msg)
-    if type(msg) == "table" then
-        msg = tostring(msg)
-    end
-    local timestamp = date("%Y-%m-%d %H:%M:%S")
-    table.insert(GrouperDebugLog, string.format("[%s] %s", timestamp, msg))
-end
--- Slash command to test AceComm WHISPER delivery
-SLASH_GROUPERTESTCOMM1 = "/groupertestcomm"
-function SlashCmdList.GROUPERTESTCOMM(msg)
-    local target = msg:match("^%s*(.-)%s*$")
-    if not target or target == "" then
-        Grouper:Print("Usage: /grouper testcomm <player>")
-        return
-    end
-    Grouper:Print("DEBUG: Sending test AceComm WHISPER to " .. target)
-    local testMessage = {
-        type = "TEST",
-        sender = UnitName("player"),
-        timestamp = time(),
-        version = Grouper.ADDON_VERSION or "unknown",
-        data = { text = "Hello from Grouper testcomm!" }
-    }
-    Grouper:SendComm("TEST", testMessage, "WHISPER", target, "ALERT")
-end
--- Utility to get full player name with realm, always using exact realm format
-function Grouper.GetFullPlayerName(name)
-    if not name then return "" end
-    local realm = GetRealmName()
-    -- Remove spaces from realm name for consistency
-    realm = realm:gsub("%s", "")
-    if name:find("-") then
-        local base, r = name:match("^(.-)%-(.+)$")
-        if base and r then
-            r = r:gsub("%s", "")
-            return base .. "-" .. r
-        end
-        return name
-    end
-    return name .. "-" .. realm
-end
-
-function Grouper:OnDisable()
-    -- Cancel specific timers when the addon is disabled
-    if self.presenceTimer then
-        self:CancelTimer(self.presenceTimer)
-        self.presenceTimer = nil
-    end
-    if self.cleanupTimer then
-        self:CancelTimer(self.cleanupTimer)
-        self.cleanupTimer = nil
-    end
-    if self.chunksCleanupTimer then
-        self:CancelTimer(self.chunksCleanupTimer)
-        self.chunksCleanupTimer = nil
-    end
-    if self.flushTimer then
-        self:CancelTimer(self.flushTimer)
-        self.flushTimer = nil
-    end
-    
-    if self.db.profile.debug.enabled then
-        self:Print("DEBUG: Addon disabled, repeating timers cancelled")
-    end
-end
-
-
+-- Update group members when player joins a group
 function Grouper:HandleJoinedGroup()
     if self.db and self.db.profile and self.db.profile.debug and self.db.profile.debug.enabled then
         self:Print("DEBUG: HandleJoinedGroup - preparing to broadcast updated group data.")
@@ -211,15 +143,13 @@ function Grouper:HandleJoinedGroup()
     end
 end
 
+-- Update state when player leaves a group
 function Grouper:HandleLeftGroup()
     -- Player left a group - they can post new groups again
     if self.db.profile.debug.enabled then
         self:Print("DEBUG: Player left a group")
     end
-    
-    -- They can now create new groups if they want
-    -- No automatic action needed, just update state
-end
+ end
 
 -- System message event handler for group join
 local GrouperEventFrame = CreateFrame("Frame")
@@ -240,7 +170,6 @@ GrouperEventFrame:SetScript("OnEvent", function(self, event, msg)
         if joinedName and not invitedName then
             if Grouper and Grouper.HandleJoinedGroup then
                 Grouper:HandleJoinedGroup()
-                -- ...existing code...
             end
         elseif msg:find("leaves the party") then
             local leftPartyPattern = "^(.-) leaves the party%.$"
@@ -454,58 +383,6 @@ end
         end
     end
 end)
-function Grouper:GetGrouperChannelIndex()
-    -- Use cached value if available
-    if self.grouperChannelNumber and self.grouperChannelNumber > 0 then
-        if self.db.profile.debug.enabled then
-            self:Print(string.format("DEBUG: Using cached channel number: %d", self.grouperChannelNumber))
-        end
-        return self.grouperChannelNumber
-    end
-    
-    -- Fallback to lookup and cache the result
-    local channelIndex = GetChannelName(ADDON_CHANNEL)
-    if channelIndex > 0 then
-        self.grouperChannelNumber = channelIndex
-        if self.db.profile.debug.enabled then
-            self:Print(string.format("DEBUG: Caching new channel number: %d", channelIndex))
-        end
-    end
-    
-    return channelIndex
-end
-
-
-function Grouper:SendGroupRemoveViaChannel(data)
-    -- Use direct channel messaging for GROUP_REMOVE
-    local channelIndex = self:GetGrouperChannelIndex()
-    if channelIndex <= 0 then
-        if self.db.profile.debug.enabled then
-            self:Print("DEBUG: ✗ Cannot send GROUP_REMOVE - not in Grouper channel")
-        end
-        return false
-    end
-    
-    -- Create simple GROUP_REMOVE message: GRPR_GROUP_REMOVE:groupId:leader:timestamp
-    local message = string.format("GRPR_GROUP_REMOVE:%s:%s:%d",
-        data.id or "",
-        UnitName("player"),
-        time()
-    )
-    
-    if self.db.profile.debug.enabled then
-        self:Print(string.format("DEBUG: ⚡ Sending GROUP_REMOVE via direct channel %d: %s", channelIndex, message))
-    end
-    
-    -- Send via direct channel message
-    SendChatMessage(message, "CHANNEL", nil, channelIndex)
-    
-    if self.db.profile.debug.enabled then
-        self:Print("DEBUG: ✓ GROUP_REMOVE sent via direct channel")
-    end
-    
-    return true
-end
 
 -- Group management functions
 function Grouper:CreateGroup(groupData)
@@ -667,6 +544,7 @@ function Grouper:CreateGroup(groupData)
     return group
 end
 
+-- Update group details (only leader can update)
 function Grouper:UpdateGroup(groupId, updates)
     local group = self.groups[groupId]
     if not group or group.leader ~= UnitName("player") then
@@ -690,6 +568,7 @@ function Grouper:UpdateGroup(groupId, updates)
     return true
 end
 
+-- Remove group (only leader can remove)
 function Grouper:RemoveGroup(groupId)
     local group = self.groups[groupId]
     if not group or group.leader ~= UnitName("player") then
@@ -703,17 +582,7 @@ function Grouper:RemoveGroup(groupId)
     return true
 end
 
--- Helper function to get table keys for debugging
-function Grouper:GetTableKeys(tbl)
-    local keys = {}
-    if type(tbl) == "table" then
-        for key, _ in pairs(tbl) do
-            table.insert(keys, tostring(key))
-        end
-    end
-    return keys
-end
-
+-- Handle incoming group updates
 function Grouper:HandleGroupUpdate(groupData, sender)
     if self.db and self.db.profile and self.db.profile.debug and self.db.profile.debug.enabled then
     local localPlayer = Grouper.GetFullPlayerName(UnitName("player"))
@@ -850,22 +719,7 @@ function Grouper:HandleGroupUpdate(groupData, sender)
     end
 end
 
-function Grouper:CountGroups()
-    local count = 0
-    for _ in pairs(self.groups) do
-        count = count + 1
-    end
-    return count
-end
-
-function Grouper:CountTableFields(tbl)
-    local count = 0
-    for _ in pairs(tbl) do
-        count = count + 1
-    end
-    return count
-end
-
+-- Handle incoming group removals
 function Grouper:HandleGroupRemove(data, sender)
     local group = self.groups[data.id]
     if group and group.leader == sender then
@@ -873,8 +727,29 @@ function Grouper:HandleGroupRemove(data, sender)
     end
 end
 
+-- Remove group by leader name
+function Grouper:RemoveGroupByLeader(leader)
+    if not self.groups then return end
+    local toRemove = {}
+    for groupId, group in pairs(self.groups) do
+        if group.leader == leader then
+            table.insert(toRemove, groupId)
+        end
+    end
+    for _, groupId in ipairs(toRemove) do
+        self.groups[groupId] = nil
+    end
+    self:RefreshGroupList()
+end
 
+-- When a response is received from a party leader, clear pending removal
+function Grouper:OnGroupLeaderResponse(leader)
+    if self.pendingGroupResponses then
+        self.pendingGroupResponses[leader] = nil
+    end
+end
 
+-- Filter and return groups based on current settings
 function Grouper:GetFilteredGroups()
     -- Faction lookup tables
     local HORDE_RACES = {
@@ -968,98 +843,7 @@ function Grouper:GetFilteredGroups()
     return filtered
 end
 
--- Main window management
-function Grouper:SaveWindowPosition()
-    if self.mainFrame and self.mainFrame.frame then
-        local point, relativeTo, relativePoint, xOfs, yOfs = self.mainFrame.frame:GetPoint()
-        if point and relativePoint then
-            self.db.profile.ui.position.point = point
-            self.db.profile.ui.position.relativePoint = relativePoint
-            self.db.profile.ui.position.xOfs = xOfs or 0
-            self.db.profile.ui.position.yOfs = yOfs or 0
-            
-            -- Save window size
-            local width = self.mainFrame.frame:GetWidth()
-            local height = self.mainFrame.frame:GetHeight()
-            self.db.profile.ui.position.width = width
-            self.db.profile.ui.position.height = height
-
-            -- Force database save to ensure position and size are written to SavedVariables
-            if self.db.Flush then
-                self.db:Flush()
-            end
-
-            if self.db.profile.debug.enabled then
-                self:Print(string.format("DEBUG: Saved window position: %s %s %.0f %.0f, size: %.0f x %.0f", point, relativePoint, xOfs or 0, yOfs or 0, width or 0, height or 0))
-            end
-        end
-    end
-end
-
-function Grouper:RestoreWindowPosition()
-    if self.mainFrame and self.mainFrame.frame then
-        local pos = self.db.profile.ui.position
-        if pos.point and pos.relativePoint and pos.xOfs ~= nil and pos.yOfs ~= nil then
-            self.mainFrame.frame:ClearAllPoints()
-            self.mainFrame.frame:SetPoint(pos.point, UIParent, pos.relativePoint, pos.xOfs, pos.yOfs)
-            -- Restore window size if available
-            if pos.width and pos.height then
-                self.mainFrame.frame:SetWidth(pos.width)
-                self.mainFrame.frame:SetHeight(pos.height)
-            end
-            if self.db.profile.debug.enabled then
-                self:Print(string.format("DEBUG: Restored window position: %s %s %.0f %.0f, size: %.0f x %.0f", pos.point, pos.relativePoint, pos.xOfs, pos.yOfs, pos.width or 0, pos.height or 0))
-                -- Verify the position and size were actually set
-                local actualPoint, actualRelativeTo, actualRelativePoint, actualXOfs, actualYOfs = self.mainFrame.frame:GetPoint()
-                local actualWidth = self.mainFrame.frame:GetWidth()
-                local actualHeight = self.mainFrame.frame:GetHeight()
-                self:Print(string.format("DEBUG: Verified position after restore: %s %s %.0f %.0f, size: %.0f x %.0f", actualPoint or "nil", actualRelativePoint or "nil", actualXOfs or 0, actualYOfs or 0, actualWidth or 0, actualHeight or 0))
-            end
-        else
-            if self.db.profile.debug.enabled then
-                self:Print(string.format("DEBUG: Cannot restore position - missing data: point=%s, relativePoint=%s, xOfs=%s, yOfs=%s", 
-                    tostring(pos.point), tostring(pos.relativePoint), tostring(pos.xOfs), tostring(pos.yOfs)))
-            end
-        end
-    end
-end
-
-function Grouper:SetupPositionSaving()
-    if self.mainFrame and self.mainFrame.frame then
-        -- Save position when frame is dragged
-        self.mainFrame.frame:SetScript("OnDragStop", function()
-            self:SaveWindowPosition()
-        end)
-        
-        -- Also save position when the frame is manually moved (backup method)
-        -- Use a simple timer-based position check
-        if not self.positionCheckTimer then
-            self.positionCheckTimer = self:ScheduleRepeatingTimer(function()
-                if self.mainFrame and self.mainFrame.frame then
-                    local currentPoint, _, currentRelativePoint, currentXOfs, currentYOfs = self.mainFrame.frame:GetPoint()
-                    local savedPos = self.db.profile.ui.position
-                    
-                    -- Check if position has changed significantly (more than 5 pixels)
-                    if currentPoint and savedPos.point and (
-                        currentPoint ~= savedPos.point or 
-                        currentRelativePoint ~= savedPos.relativePoint or
-                        math.abs((currentXOfs or 0) - (savedPos.xOfs or 0)) > 5 or
-                        math.abs((currentYOfs or 0) - (savedPos.yOfs or 0)) > 5
-                    ) then
-                        self:SaveWindowPosition()
-                    end
-                else
-                    -- Stop timer if frame doesn't exist
-                    if self.positionCheckTimer then
-                        self:CancelTimer(self.positionCheckTimer)
-                        self.positionCheckTimer = nil
-                    end
-                end
-            end, 1) -- Check every 1 second
-        end
-    end
-end
-
+-- Toggle main window visibility
 function Grouper:ToggleMainWindow()
     if self.mainFrame and self.mainFrame:IsShown() then
         self.mainFrame:Hide()
@@ -1073,6 +857,7 @@ function Grouper:ToggleMainWindow()
     end
 end
 
+-- Create the main application window
 function Grouper:CreateMainWindow()
     if self.mainFrame then
         self.mainFrame:Show()
@@ -1177,6 +962,7 @@ function Grouper:CreateMainWindow()
     self:CreateMainWindowContent()
 end
 
+-- Create the main window content with tabs
 function Grouper:CreateMainWindowContent()
     if not self.mainFrame then
         return
@@ -1208,6 +994,7 @@ function Grouper:CreateMainWindowContent()
     self.tabGroup = tabGroup
 end
 
+-- Show the selected tab content
 function Grouper:ShowTab(container, tabName)
     container:ReleaseChildren()
     
@@ -1217,9 +1004,12 @@ function Grouper:ShowTab(container, tabName)
         self:CreateCreateTab(container)
     elseif tabName == "manage" then
         self:CreateManageTab(container)
+    elseif tabName == "results" then
+        self:CreateResultsTab(container) -- New case for results tab
     end
 end
 
+-- Creat the Search Filters tab
 function Grouper:CreateBrowseTab(container)
     -- Filter section
     local filterGroup = AceGUI:Create("InlineGroup")
@@ -1346,27 +1136,12 @@ function Grouper:CreateBrowseTab(container)
         end, 15)
     end)
     filterGroup:AddChild(refreshButton)
--- Remove group by leader name
-function Grouper:RemoveGroupByLeader(leader)
-    if not self.groups then return end
-    local toRemove = {}
-    for groupId, group in pairs(self.groups) do
-        if group.leader == leader then
-            table.insert(toRemove, groupId)
-        end
-    end
-    for _, groupId in ipairs(toRemove) do
-        self.groups[groupId] = nil
-    end
-    self:RefreshGroupList()
-end
--- When a response is received from a party leader, clear pending removal
-function Grouper:OnGroupLeaderResponse(leader)
-    if self.pendingGroupResponses then
-        self.pendingGroupResponses[leader] = nil
-    end
-end
+  
     
+end
+
+-- Create the Search Results tab content
+function Grouper:CreateResultsTab(container)
     -- Groups list
     local groupsScrollFrame = AceGUI:Create("ScrollFrame")
     groupsScrollFrame:SetFullWidth(true)
@@ -1378,6 +1153,7 @@ end
     self:RefreshGroupList()
 end
 
+-- Create the "Create Group" tab UI
 function Grouper:CreateCreateTab(container)
     local scrollFrame = AceGUI:Create("ScrollFrame")
     scrollFrame:SetFullWidth(true)
@@ -1654,7 +1430,7 @@ function Grouper:CreateCreateTab(container)
             myRole = roleDropdown:GetValue(),
             dungeons = selectedDungeons
         }
-        -- Persist last selected role in SV
+        -- Persist last selected role in SV if available
         if self.db and self.db.profile then
             self.db.profile.lastRole = roleDropdown:GetValue()
         end
@@ -1674,6 +1450,7 @@ function Grouper:CreateCreateTab(container)
     scrollFrame:AddChild(createButton)
 end
 
+-- Builds the "My Groups" tab where the player can manage their created groups
 function Grouper:CreateManageTab(container)
     local scrollFrame = AceGUI:Create("ScrollFrame")
     scrollFrame:SetFullWidth(true)
@@ -1701,6 +1478,7 @@ function Grouper:CreateManageTab(container)
     end
 end
 
+-- Create a frame for managing a specific group
 function Grouper:CreateGroupManageFrame(group, tabType)
     local frame = AceGUI:Create("InlineGroup")
     frame:SetTitle(group.title)
@@ -1763,11 +1541,11 @@ function Grouper:CreateGroupManageFrame(group, tabType)
             end
         end
         local sortedMembers = {}
-        sortedMembers[1] = tanks[1] or others[1]
-        sortedMembers[2] = healers[1] or others[2] or tanks[2]
-        sortedMembers[3] = dps[1] or others[3] or healers[2] or tanks[3]
-        sortedMembers[4] = dps[2] or others[4] or healers[3] or tanks[4]
-        sortedMembers[5] = dps[3] or others[5] or healers[4] or tanks[5]
+        sortedMembers[1] = tanks[1]
+        sortedMembers[2] = healers[1]
+        sortedMembers[3] = dps[1]
+        sortedMembers[4] = dps[2]
+        sortedMembers[5] = dps[3]
         local maxSpots = 5
         for i = 1, maxSpots do
             local label = AceGUI:Create("Label")
@@ -1969,6 +1747,7 @@ function Grouper:CreateGroupManageFrame(group, tabType)
     return frame
 end
 
+-- Refresh the group list in the browse tab based on current filters
 function Grouper:RefreshGroupList(tabType)
     self:Print(string.rep("-", 40))
     self:Print("DEBUG: [RefreshGroupList] called")
@@ -1996,185 +1775,12 @@ function Grouper:RefreshGroupList(tabType)
     end
 end
 
-function Grouper:CreateGroupFrame(group)
-    local frame = AceGUI:Create("InlineGroup")
-    frame:SetTitle(string.format("%s (%d/%d)", group.title, group.currentSize, group.maxSize))
-    frame:SetFullWidth(true)
-    frame:SetLayout("Flow")
-    
-    -- Group details: show all selected dungeons (comma-separated)
-    local dungeonNames = {}
-    if group.dungeons and next(group.dungeons) then
-        for dungeonName, _ in pairs(group.dungeons) do
-            table.insert(dungeonNames, dungeonName)
-        end
-    elseif group.dungeonId and DUNGEONS then
-        for _, d in ipairs(DUNGEONS) do
-            if d.id == group.dungeonId then table.insert(dungeonNames, d.name) break end
-        end
-    end
-    local dungeonsText = #dungeonNames > 0 and table.concat(dungeonNames, ", ") or "-"
-    local detailsLabel = AceGUI:Create("Label")
-    -- Format leader name with role if available
-    local leaderText = group.leader
-    if group.leaderRole then
-        local roleColors = {
-            tank = "|cff0070DD", -- Blue for tank
-            healer = "|cff40FF40", -- Green for healer
-            dps = "|cffFF4040" -- Red for DPS
-        }
-        local roleColor = roleColors[group.leaderRole] or "|cffFFFFFF"
-        local roleCapitalized = group.leaderRole:gsub("^%l", string.upper) -- Capitalize first letter
-        leaderText = string.format("%s (%s%s|r)", group.leader, roleColor, roleCapitalized)
-    end
-    detailsLabel:SetText(string.format("|cffFFD700Leader:|r %s  |cffFFD700Type:|r %s  |cffFFD700Dungeons:|r %s  |cffFFD700Level:|r %d-%d  |cffFFD700Size:|r %d/%d\n|cffFFD700Location:|r %s\n|cffFFD700Description:|r %s",
-        leaderText,
-        group.type,
-        dungeonsText,
-        group.minLevel, group.maxLevel,
-        group.currentSize, group.maxSize,
-        group.location ~= "" and group.location or "Not specified",
-        group.description ~= "" and group.description or "No description"))
-    detailsLabel:SetFullWidth(true)
-    frame:AddChild(detailsLabel)
-    
-    -- Timestamp
-    local timeLabel = AceGUI:Create("Label")
-    timeLabel:SetText(string.format("|cff808080Posted: %s ago|r", self:FormatTimestamp(group.timestamp)))
-    timeLabel:SetFullWidth(true)
-    frame:AddChild(timeLabel)
-    
-    -- Action buttons
-    local buttonGroup = AceGUI:Create("SimpleGroup")
-    buttonGroup:SetLayout("Flow")
-    buttonGroup:SetFullWidth(true)
-    frame:AddChild(buttonGroup)
-    
-    local whisperButton = AceGUI:Create("Button")
-    whisperButton:SetText("Whisper Leader")
-    whisperButton:SetWidth(120)
-    whisperButton:SetCallback("OnClick", function()
-        -- Classic Era compatible whisper initiation
-        local whisperText = "/tell " .. group.leader .. " "
-        
-        -- Try multiple methods to activate chat with the whisper command
-        local success = false
-        
-        -- Method 1: Try ChatFrame_OpenChat (most reliable for Classic Era)
-        if ChatFrame_OpenChat then
-            ChatFrame_OpenChat(whisperText)
-            success = true
-        -- Method 2: Try DEFAULT_CHAT_FRAME editBox
-        elseif DEFAULT_CHAT_FRAME and DEFAULT_CHAT_FRAME.editBox then
-            local editBox = DEFAULT_CHAT_FRAME.editBox
-            if editBox then
-                editBox:SetText(whisperText)
-                editBox:Show()
-                editBox:SetFocus()
-                success = true
-            end
-        -- Method 3: Try ChatEdit_ActivateChat with current active window
-        elseif ChatEdit_GetActiveWindow then
-            local editBox = ChatEdit_GetActiveWindow()
-            if editBox then
-                editBox:SetText(whisperText)
-                ChatEdit_ActivateChat(editBox)
-                success = true
-            end
-        end
-        
-        -- Debug feedback
-        if self.db.profile.debug.enabled then
-            if success then
-                self:Print(string.format("DEBUG: ✓ Opened whisper to %s", group.leader))
-            else
-                self:Print(string.format("DEBUG: ✗ Failed to open whisper to %s", group.leader))
-            end
-        end
-    end)
-    buttonGroup:AddChild(whisperButton)
-    
-    local inviteButton = AceGUI:Create("Button")
-    
-    -- Always use Auto-Join button
-    inviteButton:SetText("Auto-Join")
-    inviteButton:SetWidth(120)
-    inviteButton:SetCallback("OnClick", function()
-        local playerName = UnitName("player")
-        self:Print(string.format("DEBUG: Auto-Join button clicked! cached race='%s', cached class='%s'", tostring(self.playerInfo.race), tostring(self.playerInfo.class)))
-        self:Print(string.format("DEBUG: Group leader: %s", group.leader))
-        -- Build a string payload: "INVITE_REQUEST|requester|timestamp|race|class|level|fullName"
-        local race = tostring(self.playerInfo.race or "")
-        local class = tostring(self.playerInfo.class or "")
-        local level = tonumber(self.playerInfo.level or 0)
-        local fullName = tostring(self.playerInfo.fullName or playerName)
-        local payload = string.format("INVITE_REQUEST|%s|%d|%s|%s|%d|%s",
-            tostring(playerName),
-            tonumber(time()),
-            tostring(race),
-            tostring(class),
-            tonumber(level),
-            tostring(fullName)
-        )
-        self:Print("DEBUG: Sending invite request via AceComm to " .. group.leader)
-        self:SendComm("AUTOJOIN", payload, "WHISPER", group.leader)
-    end)
-    
-    buttonGroup:AddChild(inviteButton)
-    
-    return frame
-end
+
+
 
 function Grouper:ShowEditGroupDialog(group)
     -- This is a placeholder for the edit dialog
     self:Print("Edit functionality coming soon!")
 end
 
--- Setup options/config
-function Grouper:SetupOptions()
-    local options = {
-        name = ADDON_NAME,
-        type = "group",
-        args = {
-            general = {
-                name = "General",
-                type = "group",
-                order = 1,
-                args = {
-                    minimap = {
-                        name = "Minimap Icon",
-                        desc = "Toggle the minimap icon",
-                        type = "toggle",
-                        set = function(info, val)
-                            self.db.profile.minimap.hide = not val
-                            if val then
-                                LibDBIcon:Show(ADDON_NAME)
-                            else
-                                LibDBIcon:Hide(ADDON_NAME)
-                            end
-                        end,
-                        get = function(info) return not self.db.profile.minimap.hide end,
-                    },
-                },
-            },
-            notifications = {
-                name = "Notifications",
-                type = "group",
-                order = 2,
-                args = {
-                    newGroups = {
-                        name = "New Groups",
-                        desc = "Show notification when new groups are posted",
-                        type = "toggle",
-                        set = function(info, val) self.db.profile.notifications.newGroups = val end,
-                        get = function(info) return self.db.profile.notifications.newGroups end,
-                    },
-                },
-            },
-            
-        },
-    }
-    
-    AceConfig:RegisterOptionsTable(ADDON_NAME, options)
-    AceConfigDialog:AddToBlizOptions(ADDON_NAME)
-end
+
