@@ -830,6 +830,28 @@ function Grouper:GetFilteredGroups()
                 reason = string.format("dungeon filter '%s' doesn't match", self.selectedDungeonFilter)
             end
         end
+
+        -- Role filter: Only show groups with open spots for the selected role
+        local filterRole = filters.role or "any"
+        if include and filterRole ~= "any" and group.type == "dungeon" then
+            -- Count members by role
+            local roleCounts = {tank=0, healer=0, dps=0}
+            if group.members and #group.members > 0 then
+                for _, member in ipairs(group.members) do
+                    local role = member.role and string.lower(member.role)
+                    if role == "tank" then roleCounts.tank = roleCounts.tank + 1
+                    elseif role == "healer" then roleCounts.healer = roleCounts.healer + 1
+                    elseif role == "dps" then roleCounts.dps = roleCounts.dps + 1
+                    end
+                end
+            end
+            local maxSpots = {tank=1, healer=1, dps=3}
+            if roleCounts[filterRole] >= maxSpots[filterRole] then
+                include = false
+                reason = string.format("no open %s spot", filterRole)
+            end
+        end
+
         if self.db.profile.debug.enabled then
             if include then
                 self:Print(string.format("DEBUG: ✅ Including group '%s'", group.title))
