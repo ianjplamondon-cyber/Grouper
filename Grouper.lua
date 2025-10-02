@@ -1177,6 +1177,7 @@ function Grouper:CreateMainWindow()
     self:CreateMainWindowContent()
 end
 
+-- 
 function Grouper:CreateMainWindowContent()
     if not self.mainFrame then
         return
@@ -1208,6 +1209,7 @@ function Grouper:CreateMainWindowContent()
     self.tabGroup = tabGroup
 end
 
+-- Show the selected tab
 function Grouper:ShowTab(container, tabName)
     container:ReleaseChildren()
     
@@ -1220,6 +1222,7 @@ function Grouper:ShowTab(container, tabName)
     end
 end
 
+-- Create the Search Filters tab
 function Grouper:CreateBrowseTab(container)
     -- Filter section
     local filterGroup = AceGUI:Create("InlineGroup")
@@ -1346,6 +1349,17 @@ function Grouper:CreateBrowseTab(container)
         end, 15)
     end)
     filterGroup:AddChild(refreshButton)
+    -- Groups list
+    local groupsScrollFrame = AceGUI:Create("ScrollFrame")
+    groupsScrollFrame:SetFullWidth(true)
+    groupsScrollFrame:SetFullHeight(true)
+    groupsScrollFrame:SetLayout("List")
+    container:AddChild(groupsScrollFrame)
+
+    self.groupsScrollFrame = groupsScrollFrame
+    self:RefreshGroupList()
+end
+
 -- Remove group by leader name
 function Grouper:RemoveGroupByLeader(leader)
     if not self.groups then return end
@@ -1360,24 +1374,15 @@ function Grouper:RemoveGroupByLeader(leader)
     end
     self:RefreshGroupList()
 end
+
 -- When a response is received from a party leader, clear pending removal
 function Grouper:OnGroupLeaderResponse(leader)
     if self.pendingGroupResponses then
         self.pendingGroupResponses[leader] = nil
     end
 end
-    
-    -- Groups list
-    local groupsScrollFrame = AceGUI:Create("ScrollFrame")
-    groupsScrollFrame:SetFullWidth(true)
-    groupsScrollFrame:SetFullHeight(true)
-    groupsScrollFrame:SetLayout("List")
-    container:AddChild(groupsScrollFrame)
-    
-    self.groupsScrollFrame = groupsScrollFrame
-    self:RefreshGroupList()
-end
 
+-- Create the Create Group tab
 function Grouper:CreateCreateTab(container)
     local scrollFrame = AceGUI:Create("ScrollFrame")
     scrollFrame:SetFullWidth(true)
