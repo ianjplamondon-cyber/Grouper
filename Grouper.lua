@@ -1215,23 +1215,14 @@ function Grouper:ShowTab(container, tabName)
 
     if tabName == "browse" then
         self:CreateBrowseTab(container)
+    elseif tabName == "results" then
+        self:CreateResultsTab(container)
     elseif tabName == "create" then
         self:CreateCreateTab(container)
     elseif tabName == "manage" then
         self:CreateManageTab(container)
-    elseif tabName == "results" then
-        self:CreateResultsTab(container)
     end
--- Create the Search Results tab
-function Grouper:CreateResultsTab(container)
-    local groupsScrollFrame = AceGUI:Create("ScrollFrame")
-    groupsScrollFrame:SetFullWidth(true)
-    groupsScrollFrame:SetFullHeight(true)
-    groupsScrollFrame:SetLayout("List")
-    container:AddChild(groupsScrollFrame)
-    self.groupsScrollFrame = groupsScrollFrame
-    self:RefreshGroupList("results")
-end
+
 end
 
 -- Create the Search Filters tab
@@ -1372,26 +1363,16 @@ function Grouper:CreateBrowseTab(container)
     self:RefreshGroupList()
 end
 
--- Remove group by leader name
-function Grouper:RemoveGroupByLeader(leader)
-    if not self.groups then return end
-    local toRemove = {}
-    for groupId, group in pairs(self.groups) do
-        if group.leader == leader then
-            table.insert(toRemove, groupId)
-        end
-    end
-    for _, groupId in ipairs(toRemove) do
-        self.groups[groupId] = nil
-    end
-    self:RefreshGroupList()
-end
-
--- When a response is received from a party leader, clear pending removal
-function Grouper:OnGroupLeaderResponse(leader)
-    if self.pendingGroupResponses then
-        self.pendingGroupResponses[leader] = nil
-    end
+-- Create the Search Results tab
+function Grouper:CreateResultsTab(container)
+    local groupsScrollFrame = AceGUI:Create("ScrollFrame")
+    groupsScrollFrame:SetFullWidth(true)
+    groupsScrollFrame:SetFullHeight(true)
+    groupsScrollFrame:SetLayout("List")
+    container:AddChild(groupsScrollFrame)
+    
+    self.groupsScrollFrame = groupsScrollFrame
+    self:RefreshGroupList("results")
 end
 
 -- Create the Create Group tab
@@ -1691,7 +1672,7 @@ function Grouper:CreateCreateTab(container)
     scrollFrame:AddChild(createButton)
 end
 
--- Populates the My Groups tab withh all groups created by the player
+-- Create the My Groups tab
 function Grouper:CreateManageTab(container)
     local scrollFrame = AceGUI:Create("ScrollFrame")
     scrollFrame:SetFullWidth(true)
@@ -1874,7 +1855,6 @@ end
 function Grouper:RefreshGroupList(tabType)
     self:Print(string.rep("-", 40))
     self:Print("DEBUG: [RefreshGroupList] called")
-    -- (Reverted) Do NOT update self.players/self.playerInfo from WoW API on UI open. Initialization only.
     if not self.groupsScrollFrame then
         self:Print("DEBUG: [RefreshGroupList] groupsScrollFrame is nil")
         return
@@ -1904,7 +1884,6 @@ function Grouper:RefreshGroupList(tabType)
 end
 
 -- Create a group frame for displaying a group in the results tab
-
 function Grouper:CreateGroupFrame(group, tabType)
     local frame = AceGUI:Create("InlineGroup")
     frame:SetTitle(group.title)
@@ -2143,6 +2122,28 @@ function Grouper:CreateGroupFrame(group, tabType)
     end
 
     return frame
+end
+
+-- Remove group by leader name
+function Grouper:RemoveGroupByLeader(leader)
+    if not self.groups then return end
+    local toRemove = {}
+    for groupId, group in pairs(self.groups) do
+        if group.leader == leader then
+            table.insert(toRemove, groupId)
+        end
+    end
+    for _, groupId in ipairs(toRemove) do
+        self.groups[groupId] = nil
+    end
+    self:RefreshGroupList()
+end
+
+-- When a response is received from a party leader, clear pending removal
+function Grouper:OnGroupLeaderResponse(leader)
+    if self.pendingGroupResponses then
+        self.pendingGroupResponses[leader] = nil
+    end
 end
 
 -- Placeholder for editing a group (not fully implemented)
