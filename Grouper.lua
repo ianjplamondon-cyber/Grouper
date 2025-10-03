@@ -1361,15 +1361,7 @@ function Grouper:CreateBrowseTab(container)
         end, 15)
     end)
     filterGroup:AddChild(refreshButton)
-    -- Groups list
-    local groupsScrollFrame = AceGUI:Create("ScrollFrame")
-    groupsScrollFrame:SetFullWidth(true)
-    groupsScrollFrame:SetFullHeight(true)
-    groupsScrollFrame:SetLayout("List")
-    container:AddChild(groupsScrollFrame)
 
-    self.groupsScrollFrame = groupsScrollFrame
-    self:RefreshGroupList()
 end
 
 -- Remove group by leader name
