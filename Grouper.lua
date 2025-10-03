@@ -1212,14 +1212,26 @@ end
 -- Show the selected tab
 function Grouper:ShowTab(container, tabName)
     container:ReleaseChildren()
-    
+
     if tabName == "browse" then
         self:CreateBrowseTab(container)
     elseif tabName == "create" then
         self:CreateCreateTab(container)
     elseif tabName == "manage" then
         self:CreateManageTab(container)
+    elseif tabName == "results" then
+        self:CreateResultsTab(container)
     end
+-- Create the Search Results tab
+function Grouper:CreateResultsTab(container)
+    local groupsScrollFrame = AceGUI:Create("ScrollFrame")
+    groupsScrollFrame:SetFullWidth(true)
+    groupsScrollFrame:SetFullHeight(true)
+    groupsScrollFrame:SetLayout("List")
+    container:AddChild(groupsScrollFrame)
+    self.groupsScrollFrame = groupsScrollFrame
+    self:RefreshGroupList("results")
+end
 end
 
 -- Create the Search Filters tab
@@ -1770,11 +1782,11 @@ function Grouper:CreateGroupManageFrame(group, tabType)
             end
         end
         local sortedMembers = {}
-        sortedMembers[1] = tanks[1] or others[1]
-        sortedMembers[2] = healers[1] or others[2] or tanks[2]
-        sortedMembers[3] = dps[1] or others[3] or healers[2] or tanks[3]
-        sortedMembers[4] = dps[2] or others[4] or healers[3] or tanks[4]
-        sortedMembers[5] = dps[3] or others[5] or healers[4] or tanks[5]
+        sortedMembers[1] = tanks[1]
+        sortedMembers[2] = healers[1]
+        sortedMembers[3] = dps[1]
+        sortedMembers[4] = dps[2]
+        sortedMembers[5] = dps[3]
         local maxSpots = 5
         for i = 1, maxSpots do
             local label = AceGUI:Create("Label")
@@ -1825,7 +1837,192 @@ function Grouper:CreateGroupManageFrame(group, tabType)
     buttonGroup:SetFullWidth(true)
     frame:AddChild(buttonGroup)
 
-    if tabType == "browse" then
+    if tabType == "manage" then
+        local editButton = AceGUI:Create("Button")
+        editButton:SetText("Edit")
+        editButton:SetWidth(100)
+        editButton:SetCallback("OnClick", function()
+            self:ShowEditGroupDialog(group)
+        end)
+        buttonGroup:AddChild(editButton)
+
+        local removeButton = AceGUI:Create("Button")
+        removeButton:SetText("Remove")
+        removeButton:SetWidth(100)
+        removeButton:SetCallback("OnClick", function()
+            self:RemoveGroup(group.id)
+            if self.tabGroup then
+                self.tabGroup:SelectTab("manage")
+            end
+        end)
+        buttonGroup:AddChild(removeButton)
+
+        local syncButton = AceGUI:Create("Button")
+        syncButton:SetText("Sync")
+        syncButton:SetWidth(100)
+        syncButton:SetCallback("OnClick", function()
+            self:Print("DEBUG: Sync button clicked! Broadcasting group update...")
+            Grouper:SendGroupUpdateViaChannel(group)
+        end)
+        buttonGroup:AddChild(syncButton)
+    end
+
+    return frame
+end
+
+-- Refresh the group list in the Browse tab based on current filters
+function Grouper:RefreshGroupList(tabType)
+    self:Print(string.rep("-", 40))
+    self:Print("DEBUG: [RefreshGroupList] called")
+    -- (Reverted) Do NOT update self.players/self.playerInfo from WoW API on UI open. Initialization only.
+    if not self.groupsScrollFrame then
+        self:Print("DEBUG: [RefreshGroupList] groupsScrollFrame is nil")
+        return
+    end
+    self:Print("DEBUG: 🔄 Groups in memory:")
+    for id, group in pairs(self.groups) do
+        self:Print(string.format("DEBUG:   - %s: %s (leader: %s)", id, group.title, group.leader))
+    end
+    self.groupsScrollFrame:ReleaseChildren()
+    local filteredGroups = self:GetFilteredGroups()
+    if #filteredGroups == 0 then
+        local label = AceGUI:Create("Label")
+        label:SetText("No groups found matching your filters.")
+        label:SetFullWidth(true)
+        self.groupsScrollFrame:AddChild(label)
+        return
+    end
+    for _, group in ipairs(filteredGroups) do
+        local groupFrame
+        if tabType == "manage" then
+            groupFrame = self:CreateGroupManageFrame(group, "manage")
+        else -- 'browse' and 'results' tabs
+            groupFrame = self:CreateGroupFrame(group, tabType)
+        end
+        self.groupsScrollFrame:AddChild(groupFrame)
+    end
+end
+
+-- Create a group frame for displaying a group in the results tab
+
+function Grouper:CreateGroupFrame(group, tabType)
+    local frame = AceGUI:Create("InlineGroup")
+    frame:SetTitle(group.title)
+    frame:SetFullWidth(true)
+    frame:SetLayout("Flow")
+
+    -- Group info
+    local infoLabel = AceGUI:Create("Label")
+    -- Show all selected dungeons (comma-separated), or blank if not a dungeon
+    local dungeonNames = {}
+    if group.dungeons and next(group.dungeons) then
+        for name, _ in pairs(group.dungeons) do
+            table.insert(dungeonNames, name)
+        end
+    elseif group.dungeonId and DUNGEONS then
+        for _, d in ipairs(DUNGEONS) do
+            if d.id == group.dungeonId then table.insert(dungeonNames, d.name) break end
+        end
+    end
+    local dungeonsText = #dungeonNames > 0 and table.concat(dungeonNames, ", ") or "-"
+    infoLabel:SetText(string.format("Type: %s | Dungeons: %s | Level: %d-%d | Size: %d/%d\nLocation: %s\nDescription: %s",
+        group.type, dungeonsText, group.minLevel, group.maxLevel, group.currentSize, group.maxSize,
+        group.location ~= "" and group.location or "Not specified",
+        group.description ~= "" and group.description or "No description"))
+    infoLabel:SetFullWidth(true)
+    frame:AddChild(infoLabel)
+
+    -- Party member fields
+    local membersGroup = AceGUI:Create("InlineGroup")
+    membersGroup:SetTitle("Party Members")
+    membersGroup:SetFullWidth(true)
+    membersGroup:SetLayout("List")
+    -- WoW class colors
+    local CLASS_COLORS = {
+        WARRIOR = "C79C6E", PALADIN = "F58CBA", HUNTER = "ABD473", ROGUE = "FFF569", PRIEST = "FFFFFF",
+        DEATHKNIGHT = "C41F3B", SHAMAN = "0070DE", MAGE = "69CCF0", WARLOCK = "9482C9", DRUID = "FF7D0A",
+        MONK = "00FF96", DEMONHUNTER = "A330C9", EVOKER = "33937F"
+    }
+    local CLASS_NAMES = { [1]="WARRIOR", [2]="PALADIN", [3]="HUNTER", [4]="ROGUE", [5]="PRIEST", [6]="DEATHKNIGHT", [7]="SHAMAN", [8]="MAGE", [9]="WARLOCK", [10]="DRUID", [11]="MONK", [12]="DEMONHUNTER", [13]="EVOKER" }
+    local RACE_NAMES = { [1]="Human", [2]="Orc", [3]="Dwarf", [4]="NightElf", [5]="Undead", [6]="Tauren", [7]="Gnome", [8]="Troll", [9]="Goblin", [10]="BloodElf", [11]="Draenei", [12]="Worgen", [13]="Pandaren" }
+    if group.type == "dungeon" then
+        -- Simple role-based slotting: tank (1), healer (2), dps (3-5), fill in order, show '?' for unknown roles
+        local function CamelCaseClass(class)
+            if not class or class == "?" then return class end
+            return class:sub(1,1):upper() .. class:sub(2):lower()
+        end
+        local tanks, healers, dps, others = {}, {}, {}, {}
+        if group.members and #group.members > 0 then
+            for _, member in ipairs(group.members) do
+                local role = member.role and string.lower(member.role) or "?"
+                if role == "tank" then
+                    table.insert(tanks, member)
+                elseif role == "healer" then
+                    table.insert(healers, member)
+                elseif role == "dps" then
+                    table.insert(dps, member)
+                else
+                    table.insert(others, member)
+                end
+            end
+        end
+        local sortedMembers = {}
+        sortedMembers[1] = tanks[1]
+        sortedMembers[2] = healers[1]
+        sortedMembers[3] = dps[1]
+        sortedMembers[4] = dps[2]
+        sortedMembers[5] = dps[3]
+        local maxSpots = 5
+        for i = 1, maxSpots do
+            local label = AceGUI:Create("Label")
+            label:SetWidth(500)
+            local member = sortedMembers[i]
+            if member then
+                local className = member.class or (member.classId and CLASS_NAMES[member.classId]) or "PRIEST"
+                className = CamelCaseClass(className)
+                local raceName = member.race or (member.raceId and RACE_NAMES[member.raceId]) or "Human"
+                local color = CLASS_COLORS[string.upper(className)] or "FFFFFF"
+                local roleText = member.role or "?"
+                label:SetText(string.format("|cff%s%s|r | %s | %s | %s | %d", color, member.name or "?", className, roleText, raceName, member.level or 0))
+            else
+                label:SetText("- Empty Slot -")
+            end
+            membersGroup:AddChild(label)
+        end
+    else
+        -- Original logic for non-dungeon types
+        local function CamelCaseClass(class)
+            if not class or class == "?" then return class end
+            return class:sub(1,1):upper() .. class:sub(2):lower()
+        end
+        if group.members and #group.members > 0 then
+            for _, member in ipairs(group.members) do
+                local label = AceGUI:Create("Label")
+                label:SetWidth(250)
+                local className = member.class or (member.classId and CLASS_NAMES[member.classId]) or "PRIEST"
+                className = CamelCaseClass(className)
+                local raceName = member.race or (member.raceId and RACE_NAMES[member.raceId]) or "Human"
+                local color = CLASS_COLORS[string.upper(className)] or "FFFFFF"
+                local roleText = member.role or "?"
+                label:SetText(string.format("|cff%s%s|r | %s | %s | %s | %d", color, member.name or "?", className, roleText, raceName, member.level or 0))
+                membersGroup:AddChild(label)
+            end
+        else
+            local label = AceGUI:Create("Label")
+            label:SetWidth(250)
+            label:SetText("No members found.")
+            membersGroup:AddChild(label)
+        end
+    end
+    frame:AddChild(membersGroup)
+
+    -- Buttons
+    local buttonGroup = AceGUI:Create("SimpleGroup")
+    buttonGroup:SetLayout("Flow")
+    buttonGroup:SetFullWidth(true)
+    frame:AddChild(buttonGroup)
+
+    if tabType == "results" then
         local whisperButton = AceGUI:Create("Button")
         whisperButton:SetText("Whisper Leader")
         whisperButton:SetWidth(120)
@@ -1943,194 +2140,8 @@ function Grouper:CreateGroupManageFrame(group, tabType)
             self:SendComm("AUTOJOIN", payload, "WHISPER", group.leader)
         end)
         buttonGroup:AddChild(autoJoinButton)
-    else
-        local editButton = AceGUI:Create("Button")
-        editButton:SetText("Edit")
-        editButton:SetWidth(100)
-        editButton:SetCallback("OnClick", function()
-            self:ShowEditGroupDialog(group)
-        end)
-        buttonGroup:AddChild(editButton)
-
-        local removeButton = AceGUI:Create("Button")
-        removeButton:SetText("Remove")
-        removeButton:SetWidth(100)
-        removeButton:SetCallback("OnClick", function()
-            self:RemoveGroup(group.id)
-            if self.tabGroup then
-                self.tabGroup:SelectTab("manage")
-            end
-        end)
-        buttonGroup:AddChild(removeButton)
-
-        local syncButton = AceGUI:Create("Button")
-        syncButton:SetText("Sync")
-        syncButton:SetWidth(100)
-        syncButton:SetCallback("OnClick", function()
-            self:Print("DEBUG: Sync button clicked! Broadcasting group update...")
-            Grouper:SendGroupUpdateViaChannel(group)
-        end)
-        buttonGroup:AddChild(syncButton)
     end
 
-    return frame
-end
-
--- Refresh the group list in the Browse tab based on current filters
-function Grouper:RefreshGroupList(tabType)
-    self:Print(string.rep("-", 40))
-    self:Print("DEBUG: [RefreshGroupList] called")
-    -- (Reverted) Do NOT update self.players/self.playerInfo from WoW API on UI open. Initialization only.
-    if not self.groupsScrollFrame then
-        self:Print("DEBUG: [RefreshGroupList] groupsScrollFrame is nil")
-        return
-    end
-    self:Print("DEBUG: 🔄 Groups in memory:")
-    for id, group in pairs(self.groups) do
-        self:Print(string.format("DEBUG:   - %s: %s (leader: %s)", id, group.title, group.leader))
-    end
-    self.groupsScrollFrame:ReleaseChildren()
-    local filteredGroups = self:GetFilteredGroups()
-    if #filteredGroups == 0 then
-        local label = AceGUI:Create("Label")
-        label:SetText("No groups found matching your filters.")
-        label:SetFullWidth(true)
-        self.groupsScrollFrame:AddChild(label)
-        return
-    end
-    for _, group in ipairs(filteredGroups) do
-        local groupFrame = self:CreateGroupManageFrame(group, tabType or "browse")
-        self.groupsScrollFrame:AddChild(groupFrame)
-    end
-end
-
--- Create a group frame for displaying a group in the Browse tab
-function Grouper:CreateGroupFrame(group)
-    local frame = AceGUI:Create("InlineGroup")
-    frame:SetTitle(string.format("%s (%d/%d)", group.title, group.currentSize, group.maxSize))
-    frame:SetFullWidth(true)
-    frame:SetLayout("Flow")
-    
-    -- Group details: show all selected dungeons (comma-separated)
-    local dungeonNames = {}
-    if group.dungeons and next(group.dungeons) then
-        for dungeonName, _ in pairs(group.dungeons) do
-            table.insert(dungeonNames, dungeonName)
-        end
-    elseif group.dungeonId and DUNGEONS then
-        for _, d in ipairs(DUNGEONS) do
-            if d.id == group.dungeonId then table.insert(dungeonNames, d.name) break end
-        end
-    end
-    local dungeonsText = #dungeonNames > 0 and table.concat(dungeonNames, ", ") or "-"
-    local detailsLabel = AceGUI:Create("Label")
-    -- Format leader name with role if available
-    local leaderText = group.leader
-    if group.leaderRole then
-        local roleColors = {
-            tank = "|cff0070DD", -- Blue for tank
-            healer = "|cff40FF40", -- Green for healer
-            dps = "|cffFF4040" -- Red for DPS
-        }
-        local roleColor = roleColors[group.leaderRole] or "|cffFFFFFF"
-        local roleCapitalized = group.leaderRole:gsub("^%l", string.upper) -- Capitalize first letter
-        leaderText = string.format("%s (%s%s|r)", group.leader, roleColor, roleCapitalized)
-    end
-    detailsLabel:SetText(string.format("|cffFFD700Leader:|r %s  |cffFFD700Type:|r %s  |cffFFD700Dungeons:|r %s  |cffFFD700Level:|r %d-%d  |cffFFD700Size:|r %d/%d\n|cffFFD700Location:|r %s\n|cffFFD700Description:|r %s",
-        leaderText,
-        group.type,
-        dungeonsText,
-        group.minLevel, group.maxLevel,
-        group.currentSize, group.maxSize,
-        group.location ~= "" and group.location or "Not specified",
-        group.description ~= "" and group.description or "No description"))
-    detailsLabel:SetFullWidth(true)
-    frame:AddChild(detailsLabel)
-    
-    -- Timestamp
-    local timeLabel = AceGUI:Create("Label")
-    timeLabel:SetText(string.format("|cff808080Posted: %s ago|r", self:FormatTimestamp(group.timestamp)))
-    timeLabel:SetFullWidth(true)
-    frame:AddChild(timeLabel)
-    
-    -- Action buttons
-    local buttonGroup = AceGUI:Create("SimpleGroup")
-    buttonGroup:SetLayout("Flow")
-    buttonGroup:SetFullWidth(true)
-    frame:AddChild(buttonGroup)
-    
-    local whisperButton = AceGUI:Create("Button")
-    whisperButton:SetText("Whisper Leader")
-    whisperButton:SetWidth(120)
-    whisperButton:SetCallback("OnClick", function()
-        -- Classic Era compatible whisper initiation
-        local whisperText = "/tell " .. group.leader .. " "
-        
-        -- Try multiple methods to activate chat with the whisper command
-        local success = false
-        
-        -- Method 1: Try ChatFrame_OpenChat (most reliable for Classic Era)
-        if ChatFrame_OpenChat then
-            ChatFrame_OpenChat(whisperText)
-            success = true
-        -- Method 2: Try DEFAULT_CHAT_FRAME editBox
-        elseif DEFAULT_CHAT_FRAME and DEFAULT_CHAT_FRAME.editBox then
-            local editBox = DEFAULT_CHAT_FRAME.editBox
-            if editBox then
-                editBox:SetText(whisperText)
-                editBox:Show()
-                editBox:SetFocus()
-                success = true
-            end
-        -- Method 3: Try ChatEdit_ActivateChat with current active window
-        elseif ChatEdit_GetActiveWindow then
-            local editBox = ChatEdit_GetActiveWindow()
-            if editBox then
-                editBox:SetText(whisperText)
-                ChatEdit_ActivateChat(editBox)
-                success = true
-            end
-        end
-        
-        -- Debug feedback
-        if self.db.profile.debug.enabled then
-            if success then
-                self:Print(string.format("DEBUG: ✓ Opened whisper to %s", group.leader))
-            else
-                self:Print(string.format("DEBUG: ✗ Failed to open whisper to %s", group.leader))
-            end
-        end
-    end)
-    buttonGroup:AddChild(whisperButton)
-    
-    local inviteButton = AceGUI:Create("Button")
-    
-    -- Always use Auto-Join button
-    inviteButton:SetText("Auto-Join")
-    inviteButton:SetWidth(120)
-    inviteButton:SetCallback("OnClick", function()
-        local playerName = UnitName("player")
-        self:Print(string.format("DEBUG: Auto-Join button clicked! cached race='%s', cached class='%s'", tostring(self.playerInfo.race), tostring(self.playerInfo.class)))
-        self:Print(string.format("DEBUG: Group leader: %s", group.leader))
-        -- Build a string payload: "INVITE_REQUEST|requester|timestamp|race|class|level|fullName"
-        local race = tostring(self.playerInfo.race or "")
-        local class = tostring(self.playerInfo.class or "")
-        local level = tonumber(self.playerInfo.level or 0)
-        local fullName = tostring(self.playerInfo.fullName or playerName)
-        local payload = string.format("INVITE_REQUEST|%s|%d|%s|%s|%d|%s",
-            tostring(playerName),
-            tonumber(time()),
-            tostring(race),
-            tostring(class),
-            tonumber(level),
-            tostring(fullName)
-        )
-        self:Print("DEBUG: Sending invite request via AceComm to " .. group.leader)
-        self:SendComm("AUTOJOIN", payload, "WHISPER", group.leader)
-    end)
-    
-    buttonGroup:AddChild(inviteButton)
-    
     return frame
 end
 
