@@ -1679,6 +1679,7 @@ function Grouper:CreateCreateTab(container)
     scrollFrame:AddChild(createButton)
 end
 
+-- Populates the My Groups tab withh all groups created by the player
 function Grouper:CreateManageTab(container)
     local scrollFrame = AceGUI:Create("ScrollFrame")
     scrollFrame:SetFullWidth(true)
@@ -1706,6 +1707,7 @@ function Grouper:CreateManageTab(container)
     end
 end
 
+-- Create a frame for managing a specific group (view details, edit, delete) in the "My Groups" tab
 function Grouper:CreateGroupManageFrame(group, tabType)
     local frame = AceGUI:Create("InlineGroup")
     frame:SetTitle(group.title)
@@ -1974,6 +1976,7 @@ function Grouper:CreateGroupManageFrame(group, tabType)
     return frame
 end
 
+-- Refresh the group list in the Browse tab based on current filters
 function Grouper:RefreshGroupList(tabType)
     self:Print(string.rep("-", 40))
     self:Print("DEBUG: [RefreshGroupList] called")
@@ -2001,6 +2004,7 @@ function Grouper:RefreshGroupList(tabType)
     end
 end
 
+-- Create a group frame for displaying a group in the Browse tab
 function Grouper:CreateGroupFrame(group)
     local frame = AceGUI:Create("InlineGroup")
     frame:SetTitle(string.format("%s (%d/%d)", group.title, group.currentSize, group.maxSize))
@@ -2130,6 +2134,7 @@ function Grouper:CreateGroupFrame(group)
     return frame
 end
 
+-- Placeholder for editing a group (not fully implemented)
 function Grouper:ShowEditGroupDialog(group)
     -- This is a placeholder for the edit dialog
     self:Print("Edit functionality coming soon!")
