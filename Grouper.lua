@@ -1352,6 +1352,7 @@ function Grouper:CreateBrowseTab(container)
         end, 15)
     end)
     filterGroup:AddChild(refreshButton)
+    --[[
     -- Groups list
     local groupsScrollFrame = AceGUI:Create("ScrollFrame")
     groupsScrollFrame:SetFullWidth(true)
@@ -1361,6 +1362,7 @@ function Grouper:CreateBrowseTab(container)
 
     self.groupsScrollFrame = groupsScrollFrame
     self:RefreshGroupList()
+    --]]
 end
 
 -- Create the Search Results tab
@@ -1679,10 +1681,10 @@ function Grouper:CreateManageTab(container)
     scrollFrame:SetFullHeight(true)
     scrollFrame:SetLayout("List")
     container:AddChild(scrollFrame)
-    
+        
     local myGroups = {}
     for _, group in pairs(self.groups) do
-    if group.leader == Grouper.GetFullPlayerName(UnitName("player")) then
+        if group.leader == Grouper.GetFullPlayerName(UnitName("player")) then
             table.insert(myGroups, group)
         end
     end
@@ -1698,6 +1700,10 @@ function Grouper:CreateManageTab(container)
             scrollFrame:AddChild(groupFrame)
         end
     end
+    
+    self.groupsScrollFrame = scrollFrame
+    self:RefreshGroupList("manage")
+
 end
 
 -- Create a frame for managing a specific group (view details, edit, delete) in the "My Groups" tab
