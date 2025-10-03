@@ -268,13 +268,13 @@ GrouperEventFrame:SetScript("OnEvent", function(self, event, msg)
                     end
                 end
                 if Grouper.RefreshGroupList then
-                    Grouper:RefreshGroupList("manage")
+                    Grouper:RefreshGroupList("results")
                 end
             end
             if Grouper and Grouper.HandleLeftGroup then
                 Grouper:HandleLeftGroup()
                 if Grouper.RefreshGroupList then
-                    Grouper:RefreshGroupList("manage")
+                    Grouper:RefreshGroupList("results")
                 end
             end
         elseif msg:find("You leave the group%.") or msg:find("leaves the party%.") or msg:find("You have been removed from the group%.") or msg:find("Your group has been disbanded%.") or msg:find("You have disbanded the group%.") then
@@ -1706,7 +1706,7 @@ function Grouper:CreateManageTab(container)
 
 end
 
--- Create a frame for managing a specific group (view details, edit, delete) in the "My Groups" tab
+-- Create the party frames in my manage tab
 function Grouper:CreateGroupManageFrame(group, tabType)
     local frame = AceGUI:Create("InlineGroup")
     frame:SetTitle(group.title)
@@ -1857,39 +1857,7 @@ function Grouper:CreateGroupManageFrame(group, tabType)
     return frame
 end
 
--- Refresh the group list in the Browse tab based on current filters
-function Grouper:RefreshGroupList(tabType)
-    self:Print(string.rep("-", 40))
-    self:Print("DEBUG: [RefreshGroupList] called")
-    if not self.groupsScrollFrame then
-        self:Print("DEBUG: [RefreshGroupList] groupsScrollFrame is nil")
-        return
-    end
-    self:Print("DEBUG: 🔄 Groups in memory:")
-    for id, group in pairs(self.groups) do
-        self:Print(string.format("DEBUG:   - %s: %s (leader: %s)", id, group.title, group.leader))
-    end
-    self.groupsScrollFrame:ReleaseChildren()
-    local filteredGroups = self:GetFilteredGroups()
-    if #filteredGroups == 0 then
-        local label = AceGUI:Create("Label")
-        label:SetText("No groups found matching your filters.")
-        label:SetFullWidth(true)
-        self.groupsScrollFrame:AddChild(label)
-        return
-    end
-    for _, group in ipairs(filteredGroups) do
-        local groupFrame
-        if tabType == "manage" then
-            groupFrame = self:CreateGroupManageFrame(group, "manage")
-        else -- 'browse' and 'results' tabs
-            groupFrame = self:CreateGroupFrame(group, tabType)
-        end
-        self.groupsScrollFrame:AddChild(groupFrame)
-    end
-end
-
--- Create a group frame for displaying a group in the results tab
+-- Create group frames in the results tab
 function Grouper:CreateGroupFrame(group, tabType)
     local frame = AceGUI:Create("InlineGroup")
     frame:SetTitle(group.title)
@@ -2128,6 +2096,40 @@ function Grouper:CreateGroupFrame(group, tabType)
     end
 
     return frame
+end
+
+-- Refresh the group list in the Browse tab based on current filters
+function Grouper:RefreshGroupList(tabType)
+    self:Print(string.rep("-", 40))
+    self:Print("DEBUG: [RefreshGroupList] called")
+    if not self.groupsScrollFrame then
+        self:Print("DEBUG: [RefreshGroupList] groupsScrollFrame is nil")
+        return
+    end
+    self:Print("DEBUG: 🔄 Groups in memory:")
+    for id, group in pairs(self.groups) do
+        self:Print(string.format("DEBUG:   - %s: %s (leader: %s)", id, group.title, group.leader))
+    end
+    self.groupsScrollFrame:ReleaseChildren()
+    local filteredGroups = self:GetFilteredGroups()
+    if #filteredGroups == 0 then
+        local label = AceGUI:Create("Label")
+        label:SetText("No groups found matching your filters.")
+        label:SetFullWidth(true)
+        self.groupsScrollFrame:AddChild(label)
+        return
+    end
+    for _, group in ipairs(filteredGroups) do
+        local groupFrame
+        if tabType == "manage" then
+            groupFrame = self:CreateGroupManageFrame(group, "manage")
+        elseif tabType == "results" then
+            groupFrame = self:CreateGroupFrame(group, "results")
+        end
+        if groupFrame then
+            self.groupsScrollFrame:AddChild(groupFrame)
+        end
+    end
 end
 
 -- Remove group by leader name
