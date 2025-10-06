@@ -1602,6 +1602,10 @@ function Grouper:CreateManageTab(container)
     local scrollFrame = AceGUI:Create("ScrollFrame")
     scrollFrame:SetFullWidth(true)
     scrollFrame:SetFullHeight(true)
+    -- AceGUI widget pool bug workaround: clear any fixed height
+    if scrollFrame.frame and scrollFrame.frame.SetHeight then
+        scrollFrame.frame:SetHeight(0)
+    end
     scrollFrame:SetLayout("List")
     container:AddChild(scrollFrame)
         
@@ -2114,8 +2118,109 @@ end
 
 -- Placeholder for editing a group (not fully implemented)
 function Grouper:ShowEditGroupDialog(group)
-    -- This is a placeholder for the edit dialog
-    self:Print("Edit functionality coming soon!")
+    -- Create a simple edit dialog using AceGUI
+    local AceGUI = LibStub("AceGUI-3.0")
+    local frame = AceGUI:Create("Frame")
+    frame:SetTitle("Edit Group")
+    frame:SetWidth(400)
+    frame:SetHeight(400)
+    frame:SetLayout("List")
+
+    -- Type
+    local typeDropdown = AceGUI:Create("Dropdown")
+    typeDropdown:SetLabel("Type")
+    typeDropdown:SetList({ dungeon = "Dungeon", quest = "Quest", other = "Other" })
+    typeDropdown:SetValue(group.type or "other")
+    typeDropdown:SetFullWidth(true)
+    frame:AddChild(typeDropdown)
+
+    -- Dungeon selection (multi-select, only if type is dungeon)
+    local selectedDungeons = {}
+    if group.dungeons then
+        for name, dungeon in pairs(group.dungeons) do
+            selectedDungeons[name] = dungeon
+        end
+    end
+    local dungeonGroup = AceGUI:Create("InlineGroup")
+    dungeonGroup:SetTitle("Select Dungeon(s)")
+    dungeonGroup:SetFullWidth(true)
+    dungeonGroup:SetLayout("Fill")
+    frame:AddChild(dungeonGroup)
+
+    local editDungeonScroll = AceGUI:Create("ScrollFrame")
+    editDungeonScroll:SetLayout("List")
+    editDungeonScroll:SetFullWidth(true)
+    editDungeonScroll:SetFullHeight(true)
+    dungeonGroup:AddChild(editDungeonScroll)
+
+    local function updateDungeonCheckboxes()
+        editDungeonScroll:ReleaseChildren()
+        if typeDropdown:GetValue() ~= "dungeon" then return end
+        if not DUNGEONS then return end
+        for _, dungeon in ipairs(DUNGEONS) do
+            local checkbox = AceGUI:Create("CheckBox")
+            checkbox:SetLabel(dungeon.name)
+            checkbox:SetWidth(300)
+            checkbox:SetValue(selectedDungeons[dungeon.name] ~= nil)
+            checkbox:SetCallback("OnValueChanged", function(widget, event, value)
+                if value then
+                    selectedDungeons[dungeon.name] = dungeon
+                else
+                    selectedDungeons[dungeon.name] = nil
+                end
+            end)
+            editDungeonScroll:AddChild(checkbox)
+        end
+    end
+    typeDropdown:SetCallback("OnValueChanged", function()
+        updateDungeonCheckboxes()
+    end)
+    updateDungeonCheckboxes()
+
+    -- Title
+    local titleEdit = AceGUI:Create("EditBox")
+    titleEdit:SetLabel("Title")
+    titleEdit:SetText(group.title or "")
+    titleEdit:SetFullWidth(true)
+    frame:AddChild(titleEdit)
+
+    -- Location
+    local locationEdit = AceGUI:Create("EditBox")
+    locationEdit:SetLabel("Meeting Point")
+    locationEdit:SetText(group.location or "")
+    locationEdit:SetFullWidth(true)
+    frame:AddChild(locationEdit)
+
+    -- Save button
+    local saveBtn = AceGUI:Create("Button")
+    saveBtn:SetText("Save Changes")
+    saveBtn:SetFullWidth(true)
+    saveBtn:SetCallback("OnClick", function()
+        group.title = titleEdit:GetText()
+        group.type = typeDropdown:GetValue()
+        group.location = locationEdit:GetText()
+        if typeDropdown:GetValue() == "dungeon" then
+            group.dungeons = next(selectedDungeons) and selectedDungeons or nil
+        else
+            group.dungeons = nil
+        end
+        self:SendComm("GROUP_UPDATE", group)
+        self:Print("Group updated!")
+        frame:Release()
+        if self.tabGroup then
+            self.tabGroup:SelectTab("manage")
+        end
+    end)
+    frame:AddChild(saveBtn)
+
+    -- Cancel button
+    local cancelBtn = AceGUI:Create("Button")
+    cancelBtn:SetText("Cancel")
+    cancelBtn:SetFullWidth(true)
+    cancelBtn:SetCallback("OnClick", function()
+        frame:Release()
+    end)
+    frame:AddChild(cancelBtn)
 end
 
 -- Setup options/config
