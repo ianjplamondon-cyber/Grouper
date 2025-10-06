@@ -1554,7 +1554,7 @@ function Grouper:CreateCreateTab(container)
     createButton:SetFullWidth(true)
     createButton:SetCallback("OnClick", function()
         local selectedType = typeDropdown:GetValue()
-        
+
         -- Encode type as number: 1=Dungeon, 2=Raid, 3=Quest, 4=PvP, 5=Other
         local typeId = 1 -- Default to dungeon
         if selectedType == "dungeon" then typeId = 1
@@ -1563,16 +1563,28 @@ function Grouper:CreateCreateTab(container)
         elseif selectedType == "pvp" then typeId = 4
         elseif selectedType == "other" then typeId = 5
         end
-        
+
+        -- Determine min/max level from selected dungeons
+        local minLevel, maxLevel
+        for _, dungeon in pairs(selectedDungeons) do
+            local dMin = dungeon.minLevel
+            local dMax = dungeon.maxLevel
+            -- If battleground bracket is selected, use bracket min/max
+            if dungeon.bracket then
+                dMin = dungeon.bracket.minLevel
+                dMax = dungeon.bracket.maxLevel
+            end
+            if not minLevel or dMin < minLevel then minLevel = dMin end
+            if not maxLevel or dMax > maxLevel then maxLevel = dMax end
+        end
+
         local groupData = {
             title = titleEdit:GetText(),
             description = "", -- No longer used
             type = selectedType or "dungeon",
             typeId = typeId,
-            --minLevel = tonumber(minLevelEdit:GetText()) or 15,
-            --maxLevel = tonumber(maxLevelEdit:GetText()) or 25,
-            --currentSize = tonumber(currentSizeEdit:GetText()) or 1,
-            --maxSize = tonumber(maxSizeEdit:GetText()) or 5,
+            minLevel = minLevel,
+            maxLevel = maxLevel,
             location = locationEdit:GetText(),
             myRole = roleDropdown:GetValue(),
             dungeons = selectedDungeons
@@ -1581,14 +1593,14 @@ function Grouper:CreateCreateTab(container)
         if self.db and self.db.profile then
             self.db.profile.lastRole = roleDropdown:GetValue()
         end
-        
+
         if groupData.title == "" then
             self:Print("Please enter a group title!")
             return
         end
-        
+
         self:CreateGroup(groupData)
-        
+
         -- Switch to manage tab
         if self.tabGroup then
             self.tabGroup:SelectTab("manage")
