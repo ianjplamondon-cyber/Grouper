@@ -1384,6 +1384,10 @@ function Grouper:CreateBrowseTab(container)
         checkbox:SetLabel(typeInfo.label)
         checkbox:SetValue(self.db.profile.filters.dungeonTypes[typeInfo.key])
         checkbox:SetWidth(85) -- Reduced from 100 to make more compact
+        if typeInfo.key == "raid" or typeInfo.key == "pvp" then
+            checkbox:SetDisabled(true)
+            --checkbox:SetDescription("Not implemented yet")
+        end
         checkbox:SetCallback("OnValueChanged", function(widget, event, value)
             self.db.profile.filters.dungeonTypes[typeInfo.key] = value
             self:RefreshGroupList()
