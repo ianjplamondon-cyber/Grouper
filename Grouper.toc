@@ -2,11 +2,11 @@
 ## Title: Grouper
 ## Notes: Help players find and create groups across your server using a shared communication channel
 ## Author: Grouper
-## Version: 1.0.0
+## Version: @project-version@
 ## SavedVariables: GrouperDB, GrouperDebugLog
 ## X-Category: Guild
 ## X-Website: 
-## X-Curse-Project-ID: 
+## X-Curse-Project-ID: 1360261
 ## X-WoWI-ID: 
 
 # Libraries

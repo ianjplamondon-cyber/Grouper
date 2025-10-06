@@ -1,0 +1,23 @@
+# .pkgmeta
+package-as: SandPacker
+
+curseforge-project-id: 1341263
+
+# Pull externals (examples — remove if you don’t need them)
+# externals:
+#   Libs/LibStub: https://repos.wowace.com/wow/libstub/trunk
+#   Libs/CallbackHandler-1.0:
+#     url: https://repos.wowace.com/wow/callbackhandler/trunk/CallbackHandler-1.0
+#     tag: latest
+
+# Keep noise out of the zip
+ignore:
+  - .git/
+  - .github/
+  - .vscode/
+  - "*.md"
+  - "*.txt"
+  - "**/*.ps1"
+  - "**/*.bat"
+  - "*.code-workspace"
+  
