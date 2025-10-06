@@ -509,6 +509,14 @@ end
 
 -- Group management functions
 function Grouper:CreateGroup(groupData)
+    -- Prevent creating a second group if player already has one
+    local playerFullName = Grouper.GetFullPlayerName(UnitName("player"))
+    for _, group in pairs(self.groups or {}) do
+        if group.leader == playerFullName then
+            self:Print("Error: You’ve already formed a group. This isn’t Orgrimmar Trade Chat — you can’t just spam invites forever.")
+            return nil
+        end
+    end
     -- Encode type as number if not already encoded: 1=Dungeon, 2=Raid, 3=Quest, 4=PvP, 5=Other
     local typeId = groupData.typeId
     if not typeId then
@@ -813,6 +821,15 @@ function Grouper:HandleGroupUpdate(groupData, sender)
     end
     -- Now proceed with group filtering and storage
     if Grouper.GetFullPlayerName(groupData.leader) == Grouper.GetFullPlayerName(sender) then
+        -- Remove stale groups led by the same leader before adding the new group
+        for groupId, group in pairs(self.groups) do
+            if group.leader == groupData.leader and groupId ~= groupData.id then
+                self.groups[groupId] = nil
+                if self.db and self.db.profile and self.db.profile.debug and self.db.profile.debug.enabled then
+                    self:Print(string.format("DEBUG: [HandleGroupUpdate] Removed stale group %s led by %s", groupId, groupData.leader))
+                end
+            end
+        end
         self.groups[groupData.id] = groupData
         -- Update player cache with groupId if local player is the leader
         local localPlayer = Grouper.GetFullPlayerName(UnitName("player"))
@@ -1781,10 +1798,9 @@ function Grouper:CreateGroupManageFrame(group, tabType)
         end
     end
     local dungeonsText = #dungeonNames > 0 and table.concat(dungeonNames, ", ") or "-"
-    infoLabel:SetText(string.format("Type: %s | Dungeons: %s | Level: %d-%d | Size: %d/%d\nLocation: %s\nDescription: %s",
+    infoLabel:SetText(string.format("Type: %s | Dungeons: %s | Level: %d-%d | Size: %d/%d\nMeeting Point: %s",
         group.type, dungeonsText, group.minLevel, group.maxLevel, group.currentSize, group.maxSize,
-        group.location ~= "" and group.location or "Not specified",
-        group.description ~= "" and group.description or "No description"))
+        group.location ~= "" and group.location or "Not specified"))
     infoLabel:SetFullWidth(true)
     frame:AddChild(infoLabel)
     
