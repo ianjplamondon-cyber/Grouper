@@ -1639,7 +1639,7 @@ function Grouper:OnAutoJoinRequest(prefix, message, distribution, sender)
     if requestedRole == "tank" and tankExists then
         -- Send error message to requester, do not invite
         if distribution == "WHISPER" and inviteRequest.requester then
-            SendChatMessage("Error: This group already has a tank.", "WHISPER", nil, inviteRequest.requester)
+            SendChatMessage("Error: This group already has a tank. Did you think this was Alterac Valley?", "WHISPER", nil, inviteRequest.requester)
         end
         if self.db.profile.debug.enabled then
             self:Print("DEBUG: Blocked duplicate tank invite for " .. tostring(inviteRequest.requester))
@@ -1649,7 +1649,7 @@ function Grouper:OnAutoJoinRequest(prefix, message, distribution, sender)
     if requestedRole == "healer" and healerExists then
         -- Send error message to requester, do not invite
         if distribution == "WHISPER" and inviteRequest.requester then
-            SendChatMessage("Error: This group already has a healer.", "WHISPER", nil, inviteRequest.requester)
+            SendChatMessage("Error: This group already has a healer. Two healers in a 5-man? What is this, Molten Core?", "WHISPER", nil, inviteRequest.requester)
         end
         if self.db.profile.debug.enabled then
             self:Print("DEBUG: Blocked duplicate healer invite for " .. tostring(inviteRequest.requester))
