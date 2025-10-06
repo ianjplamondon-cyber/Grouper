@@ -210,7 +210,6 @@ GrouperEventFrame:SetScript("OnEvent", function(self, event, msg)
             local playerName = UnitName("player")
             local fullPlayerName = Grouper.GetFullPlayerName(playerName)
             local isLeader = false
-            local groupIdToRemove = nil
             for groupId, group in pairs(Grouper.groups) do
                 if group.leader == fullPlayerName then
                     isLeader = true
@@ -223,6 +222,26 @@ GrouperEventFrame:SetScript("OnEvent", function(self, event, msg)
                     Grouper:HandleNonLeaderCache("leave", fullPlayerName, cacheInfo.groupId)
                 elseif isLeader and Grouper.LeaderRemoveMemberFromCache then
                     Grouper:LeaderRemoveMemberFromCache(playerName)
+                end
+            end
+            -- Fallback: only remove group for non-leaders
+            if not isLeader then
+                local toRemove = {}
+                for groupId, group in pairs(Grouper.groups) do
+                    if group.members then
+                        for _, member in ipairs(group.members) do
+                            if member.name == fullPlayerName or member.name == playerName then
+                                table.insert(toRemove, groupId)
+                                break
+                            end
+                        end
+                    end
+                end
+                for _, groupId in ipairs(toRemove) do
+                    Grouper.groups[groupId] = nil
+                    if Grouper.db and Grouper.db.profile and Grouper.db.profile.debug and Grouper.db.profile.debug.enabled then
+                        Grouper:Print("DEBUG: [LeaveGroup Fallback] Removed group " .. tostring(groupId) .. " from UI (fallback cleanup, non-leader).")
+                    end
                 end
             end
             if Grouper and Grouper.HandleLeftGroup then
