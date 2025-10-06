@@ -15,6 +15,32 @@ Grouper:RegisterChatCommand("groupercg", function()
         Grouper:Print("No groups cached.")
     end
 end)
+
+-- Debug command to list all dungeons in all groups
+Grouper:RegisterChatCommand("groupercd", function()
+    local groups = Grouper.groups
+    local count = 0
+    for groupId, group in pairs(groups) do
+        Grouper:Print(string.format("Group ID: %s | Title: %s", groupId, group.title or ""))
+        if group.dungeons and next(group.dungeons) then
+            for name, dungeon in pairs(group.dungeons) do
+                if type(dungeon) == "table" then
+                    Grouper:Print(string.format("  Dungeon: %s | ID: %s | MinLevel: %s | MaxLevel: %s | Type: %s | Faction: %s", dungeon.name or name, tostring(dungeon.id), tostring(dungeon.minLevel), tostring(dungeon.maxLevel), tostring(dungeon.type), tostring(dungeon.faction)))
+                else
+                    Grouper:Print(string.format("  Dungeon: %s | Data: %s", name, tostring(dungeon)))
+                end
+            end
+        else
+            Grouper:Print("  No dungeons in this group.")
+        end
+        count = count + 1
+    end
+    if count == 0 then
+        Grouper:Print("No groups cached.")
+    end
+end)
+
+
 -- Force clear all non-leader members from cache
 function Grouper:ForceClearNonLeaderCache()
     local leaderName = GetFullPlayerName(UnitName("player"))

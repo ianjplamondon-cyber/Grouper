@@ -613,6 +613,34 @@ function Grouper:CreateGroup(groupData)
             })
         end
     end
+        -- Add min/max level to each entry in group.dungeons
+    local enrichedDungeons = {}
+    if groupData.dungeons and next(groupData.dungeons) and DUNGEONS then
+        for name, dungeon in pairs(groupData.dungeons) do
+            local found = nil
+            for _, d in ipairs(DUNGEONS) do
+                if d.name == name then
+                    found = d
+                    break
+                end
+            end
+            if found then
+                enrichedDungeons[name] = {
+                    id = found.id,
+                    name = found.name,
+                    minLevel = found.minLevel,
+                    maxLevel = found.maxLevel,
+                    type = found.type,
+                    faction = found.faction,
+                    brackets = found.brackets
+                }
+            else
+                enrichedDungeons[name] = dungeon -- fallback to original
+            end
+        end
+    else
+        enrichedDungeons = groupData.dungeons or {}
+    end
     local group = {
         id = self:GenerateGroupID(),
         leader = Grouper.GetFullPlayerName(UnitName("player")),
@@ -625,7 +653,7 @@ function Grouper:CreateGroup(groupData)
         currentSize = groupData.currentSize or 1,
         maxSize = groupData.maxSize or 5,
         location = groupData.location or "",
-        dungeons = groupData.dungeons or {},
+        dungeons = enrichedDungeons,
         timestamp = time(),
         members = members,
         myRole = role
