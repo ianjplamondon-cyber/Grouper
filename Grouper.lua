@@ -609,14 +609,23 @@ end
 -- Remove group (only leader can remove)
 function Grouper:RemoveGroup(groupId)
     local group = self.groups[groupId]
-    if not group or group.leader ~= UnitName("player") then
+    if not group or group.leader ~= Grouper.GetFullPlayerName(UnitName("player")) then
+        self:Print("DEBUG: [RemoveGroup] Not found or not leader for groupId " .. tostring(groupId) .. ". group.leader=" .. tostring(group and group.leader) .. ", player=" .. Grouper.GetFullPlayerName(UnitName("player")))
         return false
     end
-    
+
     self.groups[groupId] = nil
+    self:Print("DEBUG: [RemoveGroup] Removed groupId from self.groups: " .. tostring(groupId))
     self:SendComm("GROUP_REMOVE", {id = groupId})
-    
+
     self:Print(string.format("Removed group: %s", group.title))
+    -- Print all group keys left in cache
+    local count = 0
+    for k, v in pairs(self.groups) do
+        self:Print("DEBUG: [RemoveGroup] Remaining group in cache: " .. tostring(k))
+        count = count + 1
+    end
+    self:Print("DEBUG: [RemoveGroup] Total groups left in cache: " .. count)
     return true
 end
 
@@ -1753,7 +1762,19 @@ function Grouper:CreateGroupManageFrame(group, tabType)
         removeButton:SetText("Remove")
         removeButton:SetWidth(100)
         removeButton:SetCallback("OnClick", function()
-            self:RemoveGroup(group.id)
+            -- Find the group key by matching group.id to the key in self.groups
+            local groupKey = nil
+            for k, v in pairs(self.groups) do
+                if k == group.id then
+                    groupKey = k
+                    break
+                end
+            end
+            if groupKey then
+                self:RemoveGroup(groupKey)
+            else
+                self:Print("Error: Could not find group key for removal.")
+            end
             if self.tabGroup then
                 self.tabGroup:SelectTab("manage")
             end
