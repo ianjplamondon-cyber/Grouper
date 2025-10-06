@@ -2213,6 +2213,20 @@ function Grouper:ShowEditGroupDialog(group)
         group.location = locationEdit:GetText()
         if typeDropdown:GetValue() == "dungeon" then
             group.dungeons = next(selectedDungeons) and selectedDungeons or nil
+            -- Recalculate minLevel and maxLevel from selected dungeons
+            local minLevel, maxLevel
+            for _, dungeon in pairs(selectedDungeons) do
+                local dMin = dungeon.minLevel
+                local dMax = dungeon.maxLevel
+                if dungeon.bracket then
+                    dMin = dungeon.bracket.minLevel
+                    dMax = dungeon.bracket.maxLevel
+                end
+                if not minLevel or dMin < minLevel then minLevel = dMin end
+                if not maxLevel or dMax > maxLevel then maxLevel = dMax end
+            end
+            group.minLevel = minLevel
+            group.maxLevel = maxLevel
         else
             group.dungeons = nil
         end
