@@ -749,6 +749,34 @@ function Grouper:HandleGroupUpdate(groupData, sender)
         end
     end
     
+    -- Debug: Print tabGroup, selected tab, and groupsScrollFrame before UI refresh
+    if self.db and self.db.profile and self.db.profile.debug and self.db.profile.debug.enabled then
+        self:Print("DEBUG: [HandleGroupUpdate] tabGroup: " .. tostring(self.tabGroup))
+        if self.tabGroup and self.tabGroup.GetSelectedTab then
+            local selectedTab = self.tabGroup:GetSelectedTab()
+            self:Print("DEBUG: [HandleGroupUpdate] selectedTab: " .. tostring(selectedTab))
+        else
+            self:Print("DEBUG: [HandleGroupUpdate] selectedTab: nil (tabGroup missing or no GetSelectedTab)")
+        end
+        self:Print("DEBUG: [HandleGroupUpdate] groupsScrollFrame: " .. tostring(self.groupsScrollFrame))
+    end
+
+    -- If the results tab is active, ensure groupsScrollFrame is set to the results tab's scroll frame
+    if self.tabGroup and self.tabGroup.GetSelectedTab and self.tabGroup:GetSelectedTab() == "results" then
+        local container = self.tabGroup
+        if container and container.children then
+            for _, child in ipairs(container.children) do
+                if child.type == "ScrollFrame" then
+                    self.groupsScrollFrame = child
+                    if self.db and self.db.profile and self.db.profile.debug and self.db.profile.debug.enabled then
+                        self:Print("DEBUG: [HandleGroupUpdate] groupsScrollFrame set to results tab's scroll frame: " .. tostring(child) .. "\\n" .. debugstack(2, 10, 10))
+                    end
+                    break
+                end
+            end
+        end
+    end
+
     -- Add safety check for nil groupData
     if not groupData then
         if self.db.profile.debug.enabled then
@@ -812,7 +840,22 @@ function Grouper:HandleGroupUpdate(groupData, sender)
             if self.db.profile.debug.enabled then
                 self:Print(string.format("DEBUG: Refreshing UI after adding group %s (total groups: %d)", groupData.id, self:CountGroups()))
             end
-            self:RefreshGroupList()
+            -- If the Search Results tab is active, ensure self.groupsScrollFrame is set to the current results tab's scroll frame before refreshing
+            if self.tabGroup and self.tabGroup.selected == "results" then
+                local container = self.tabGroup
+                if container and container.children then
+                    for _, child in ipairs(container.children) do
+                        if child.type == "ScrollFrame" then
+                            self.groupsScrollFrame = child
+                            if self.db and self.db.profile and self.db.profile.debug and self.db.profile.debug.enabled then
+                                self:Print("DEBUG: [HandleGroupUpdate] Set groupsScrollFrame to active results tab scroll frame\n" .. debugstack(2, 10, 10))
+                            end
+                            break
+                        end
+                    end
+                end
+                self:RefreshGroupList("results")
+            end
         end
     else
         if self.db.profile.debug.enabled then
@@ -1332,6 +1375,7 @@ function Grouper:CreateBrowseTab(container)
         for groupId, group in pairs(self.groups or {}) do
             local leader = group.leader
             self.pendingGroupResponses[leader] = now
+            --[[
             -- Schedule removal if no response
             self:ScheduleTimer(function()
                 if self.pendingGroupResponses[leader] == now then
@@ -1342,7 +1386,10 @@ function Grouper:CreateBrowseTab(container)
                     self.pendingGroupResponses[leader] = nil
                 end
             end, 10)
+            --]]
         end
+        
+        --[[
         -- Also schedule a delayed refresh
         self:ScheduleTimer(function()
             if self.db.profile.debug.enabled then
@@ -1350,9 +1397,10 @@ function Grouper:CreateBrowseTab(container)
             end
             self:RefreshGroupList()
         end, 15)
+        --]]
     end)
     filterGroup:AddChild(refreshButton)
-    --[[
+    
     -- Groups list
     local groupsScrollFrame = AceGUI:Create("ScrollFrame")
     groupsScrollFrame:SetFullWidth(true)
@@ -1362,7 +1410,7 @@ function Grouper:CreateBrowseTab(container)
 
     self.groupsScrollFrame = groupsScrollFrame
     self:RefreshGroupList()
-    --]]
+    
 end
 
 -- Create the Search Results tab
@@ -1374,6 +1422,9 @@ function Grouper:CreateResultsTab(container)
     container:AddChild(groupsScrollFrame)
     
     self.groupsScrollFrame = groupsScrollFrame
+    if self.db and self.db.profile and self.db.profile.debug and self.db.profile.debug.enabled then
+        self:Print("DEBUG: [CreateResultsTab] groupsScrollFrame set: " .. tostring(self.groupsScrollFrame) .. "\n" .. debugstack(2, 10, 10))
+    end
     self:RefreshGroupList("results")
 end
 
@@ -1702,6 +1753,9 @@ function Grouper:CreateManageTab(container)
     end
     
     self.groupsScrollFrame = scrollFrame
+    if self.db and self.db.profile and self.db.profile.debug and self.db.profile.debug.enabled then
+        self:Print("DEBUG: [CreateManageTab] groupsScrollFrame set: " .. tostring(self.groupsScrollFrame) .. "\n" .. debugstack(2, 10, 10))
+    end
     self:RefreshGroupList("manage")
 
 end
@@ -1855,6 +1909,50 @@ function Grouper:CreateGroupManageFrame(group, tabType)
     end
 
     return frame
+end
+
+-- Refresh the group list in the Browse tab based on current filters
+function Grouper:RefreshGroupList(tabType)
+    self:Print(string.rep("-", 40))
+    self:Print("DEBUG: [RefreshGroupList] called")
+    self:Print("DEBUG: [RefreshGroupList] stack trace:\n" .. debugstack(2, 10, 10))
+    if self.db and self.db.profile and self.db.profile.debug and self.db.profile.debug.enabled then
+        self:Print("DEBUG: [RefreshGroupList] groupsScrollFrame at entry: " .. tostring(self.groupsScrollFrame) .. "\n" .. debugstack(2, 10, 10))
+    end
+    if not self.groupsScrollFrame then
+        self:Print("DEBUG: [RefreshGroupList] groupsScrollFrame is nil\n" .. debugstack(2, 10, 10))
+        return
+    end
+    self:Print("DEBUG: 🔄 Groups in memory:")
+    for id, group in pairs(self.groups) do
+        self:Print(string.format("DEBUG:   - %s: %s (leader: %s)", id, group.title, group.leader))
+    end
+    if self.db and self.db.profile and self.db.profile.debug and self.db.profile.debug.enabled then
+        self:Print("DEBUG: [RefreshGroupList] about to ReleaseChildren on groupsScrollFrame: " .. tostring(self.groupsScrollFrame))
+    end
+    self.groupsScrollFrame:ReleaseChildren()
+    local filteredGroups = self:GetFilteredGroups()
+    if #filteredGroups == 0 then
+        local label = AceGUI:Create("Label")
+        label:SetText("No groups found matching your filters.")
+        label:SetFullWidth(true)
+        self.groupsScrollFrame:AddChild(label)
+        return
+    end
+    for _, group in ipairs(filteredGroups) do
+        local groupFrame
+        if tabType == "manage" then
+            groupFrame = self:CreateGroupManageFrame(group, "manage")
+        elseif tabType == "results" then
+            groupFrame = self:CreateGroupFrame(group, "results")
+        end
+        if self.db and self.db.profile and self.db.profile.debug and self.db.profile.debug.enabled then
+            self:Print("DEBUG: [RefreshGroupList] about to AddChild to groupsScrollFrame: " .. tostring(self.groupsScrollFrame))
+        end
+        if groupFrame then
+            self.groupsScrollFrame:AddChild(groupFrame)
+        end
+    end
 end
 
 -- Create group frames in the results tab
@@ -2096,40 +2194,6 @@ function Grouper:CreateGroupFrame(group, tabType)
     end
 
     return frame
-end
-
--- Refresh the group list in the Browse tab based on current filters
-function Grouper:RefreshGroupList(tabType)
-    self:Print(string.rep("-", 40))
-    self:Print("DEBUG: [RefreshGroupList] called")
-    if not self.groupsScrollFrame then
-        self:Print("DEBUG: [RefreshGroupList] groupsScrollFrame is nil")
-        return
-    end
-    self:Print("DEBUG: 🔄 Groups in memory:")
-    for id, group in pairs(self.groups) do
-        self:Print(string.format("DEBUG:   - %s: %s (leader: %s)", id, group.title, group.leader))
-    end
-    self.groupsScrollFrame:ReleaseChildren()
-    local filteredGroups = self:GetFilteredGroups()
-    if #filteredGroups == 0 then
-        local label = AceGUI:Create("Label")
-        label:SetText("No groups found matching your filters.")
-        label:SetFullWidth(true)
-        self.groupsScrollFrame:AddChild(label)
-        return
-    end
-    for _, group in ipairs(filteredGroups) do
-        local groupFrame
-        if tabType == "manage" then
-            groupFrame = self:CreateGroupManageFrame(group, "manage")
-        elseif tabType == "results" then
-            groupFrame = self:CreateGroupFrame(group, "results")
-        end
-        if groupFrame then
-            self.groupsScrollFrame:AddChild(groupFrame)
-        end
-    end
 end
 
 -- Remove group by leader name
