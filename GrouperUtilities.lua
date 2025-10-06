@@ -41,6 +41,7 @@ Grouper:RegisterChatCommand("groupercd", function()
     end
 end)
 
+
 -- Force clear all non-leader members from cache
 function Grouper:ForceClearNonLeaderCache()
     local leaderName = GetFullPlayerName(UnitName("player"))

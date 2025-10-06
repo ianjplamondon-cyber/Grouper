@@ -571,8 +571,21 @@ function Grouper:HandleDirectGroupUpdate(message, sender)
     }
     
     if self.db.profile.debug.enabled then
-        self:Print(string.format("DEBUG: Processing encoded GROUP_UPDATE: %s (%s) type=%s, dungeon=%s, levels=%d-%d from %s", 
-            groupData.id, groupData.title, groupData.type, dungeonName, minLevel, maxLevel, sender))
+        self:Print(string.format(
+            "DEBUG: Processing encoded GROUP_UPDATE: id=%s, title=%s, typeId=%s, dungeonIds=%s, currentSize=%s, maxSize=%s, location=%s, timestamp=%s, leader=%s, roleId=%s, members=%s from %s",
+            parts[2] or '',
+            parts[3] or '',
+            parts[4] or '',
+            parts[5] or '',
+            parts[6] or '',
+            parts[7] or '',
+            parts[8] or '',
+            parts[9] or '',
+            parts[10] or '',
+            parts[11] or '',
+            parts[12] or '',
+            sender
+        ))
     end
     
     -- Use the same processing as other group updates
@@ -1607,6 +1620,7 @@ function Grouper:OnAutoJoinRequest(prefix, message, distribution, sender)
     for k, v in pairs(inviteRequest) do
         self:Print("  " .. k .. "=" .. tostring(v))
     end
+
     -- Check for duplicate tank or healer in group
     local groupId = inviteRequest.groupId or inviteRequest.groupID or inviteRequest.group_id
     local requestedRole = (inviteRequest.myRole or inviteRequest.role or ""):lower()
