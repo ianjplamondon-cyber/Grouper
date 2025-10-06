@@ -1017,6 +1017,12 @@ function Grouper:CreateMainWindow()
     
     -- Add drag functionality to frame borders
     local frame = self.mainFrame.frame
+    -- Save window position and size on resize
+    if frame and frame.SetScript then
+        frame:SetScript("OnSizeChanged", function()
+            self:SaveWindowPosition()
+        end)
+    end
     if frame then
         frame:SetMovable(true)
         
@@ -1203,12 +1209,9 @@ function Grouper:CreateBrowseTab(container)
         checkbox:SetLabel(typeInfo.label)
         checkbox:SetValue(self.db.profile.filters.dungeonTypes[typeInfo.key])
         checkbox:SetWidth(85) -- Reduced from 100 to make more compact
-        --[[
         if typeInfo.key == "raid" or typeInfo.key == "pvp" then
             checkbox:SetDisabled(true)
-            --checkbox:SetDescription("Not implemented yet")
         end
-        --]]
         checkbox:SetCallback("OnValueChanged", function(widget, event, value)
             self.db.profile.filters.dungeonTypes[typeInfo.key] = value
             self:RefreshGroupList()
