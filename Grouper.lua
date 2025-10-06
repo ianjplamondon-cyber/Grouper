@@ -1669,8 +1669,8 @@ function Grouper:CreateGroupManageFrame(group, tabType)
         end
     end
     local dungeonsText = #dungeonNames > 0 and table.concat(dungeonNames, ", ") or "-"
-    infoLabel:SetText(string.format("Type: %s | Dungeons: %s | Level: %d-%d | Size: %d/%d\nMeeting Point: %s",
-        group.type, dungeonsText, group.minLevel, group.maxLevel, group.currentSize, group.maxSize,
+    infoLabel:SetText(string.format("Type: %s | Dungeons: %s | Level: %d-%d\nMeeting Point: %s",
+        group.type, dungeonsText, group.minLevel, group.maxLevel,
         group.location ~= "" and group.location or "Not specified"))
     infoLabel:SetFullWidth(true)
     frame:AddChild(infoLabel)
@@ -1875,8 +1875,8 @@ function Grouper:CreateGroupFrame(group, tabType)
         end
     end
     local dungeonsText = #dungeonNames > 0 and table.concat(dungeonNames, ", ") or "-"
-    infoLabel:SetText(string.format("Type: %s | Dungeons: %s | Level: %d-%d | Size: %d/%d\nMeeting Point: %s",
-        group.type, dungeonsText, group.minLevel, group.maxLevel, group.currentSize, group.maxSize,
+    infoLabel:SetText(string.format("Type: %s | Dungeons: %s | Level: %d-%d\nMeeting Point: %s",
+        group.type, dungeonsText, group.minLevel, group.maxLevel,
         group.location ~= "" and group.location or "Not specified"))
     infoLabel:SetFullWidth(true)
     frame:AddChild(infoLabel)
