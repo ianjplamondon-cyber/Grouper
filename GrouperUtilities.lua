@@ -570,12 +570,9 @@ end
 function Grouper.GetFullPlayerName(name)
     if not name then return "" end
     local realm = GetRealmName()
-    -- Remove spaces from realm name for consistency
-    realm = realm:gsub("%s", "")
     if name:find("-") then
         local base, r = name:match("^(.-)%-(.+)$")
         if base and r then
-            r = r:gsub("%s", "")
             return base .. "-" .. r
         end
         return name
