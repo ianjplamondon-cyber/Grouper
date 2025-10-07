@@ -66,9 +66,6 @@ function Grouper:HandleJoinedGroup()
         self:Print("DEBUG: HandleJoinedGroup - preparing to broadcast updated group data.")
         self:Print("DEBUG: HandleJoinedGroup stack trace:")
         self:Print(debugstack(2, 10, 10))
-    end
-    -- Update the members field of the correct group using its unique ID
-    if self.db.profile.debug.enabled then
         self:Print("DEBUG: Player joined a group - updating members list")
     end
 
@@ -146,7 +143,7 @@ end
 -- Update state when player leaves a group
 function Grouper:HandleLeftGroup()
     -- Player left a group - they can post new groups again
-    if self.db.profile.debug.enabled then
+    if self.db and self.db.profile and self.db.profile.debug and self.db.profile.debug.enabled then
         self:Print("DEBUG: Player left a group")
     end
  end
@@ -650,6 +647,8 @@ end
 
 -- Handle incoming group updates
 function Grouper:HandleGroupUpdate(groupData, sender)
+    -- Table to track printed group ids (persist for session)
+    Grouper.printedGroupIds = Grouper.printedGroupIds or {}
     if self.db and self.db.profile and self.db.profile.debug and self.db.profile.debug.enabled then
     local localPlayer = Grouper.GetFullPlayerName(UnitName("player"))
         if localPlayer == groupData.leader then
@@ -674,13 +673,15 @@ function Grouper:HandleGroupUpdate(groupData, sender)
             self:Print("DEBUG: [HandleGroupUpdate] (remote user) - full groupData: " .. self:Serialize(groupData))
         end
     end
-    self:Print(string.rep("-", 40))
-    self:Print("DEBUG: [HandleGroupUpdate] called")
-    self:Print(string.format("DEBUG: sender: %s, leader: %s", sender, groupData and groupData.leader or "nil"))
-    self:Print(string.format("DEBUG: Group ID: %s, Title: %s", groupData and groupData.id or "nil", groupData and groupData.title or "nil"))
-    if groupData then
-        for k, v in pairs(groupData) do
-            self:Print(string.format("DEBUG: groupData.%s = %s", k, tostring(v)))
+    if self.db and self.db.profile and self.db.profile.debug and self.db.profile.debug.enabled then
+        self:Print(string.rep("-", 40))
+        self:Print("DEBUG: [HandleGroupUpdate] called")
+        self:Print(string.format("DEBUG: sender: %s, leader: %s", sender, groupData and groupData.leader or "nil"))
+        self:Print(string.format("DEBUG: Group ID: %s, Title: %s", groupData and groupData.id or "nil", groupData and groupData.title or "nil"))
+        if groupData then
+            for k, v in pairs(groupData) do
+                self:Print(string.format("DEBUG: groupData.%s = %s", k, tostring(v)))
+            end
         end
     end
     
@@ -776,8 +777,11 @@ function Grouper:HandleGroupUpdate(groupData, sender)
                 self:Print(string.format("DEBUG: ❌ ERROR: group %s NOT found in memory after storage!", groupData.id))
             end
         end
-        if self.db.profile.notifications.newGroups then
-            self:Print(string.format("New group available: %s", groupData.title))
+        if self.db.profile.notifications.newGroups and groupData.id then
+            if not Grouper.printedGroupIds[groupData.id] then
+                self:Print(string.format("New group available: %s", groupData.title))
+                Grouper.printedGroupIds[groupData.id] = true
+            end
         end
         -- Refresh UI if it's open (this happens after adding a group)
         if self.mainFrame and self.mainFrame:IsShown() then
@@ -1834,21 +1838,23 @@ end
 
 -- Refresh the group list in the Browse tab based on current filters
 function Grouper:RefreshGroupList(tabType)
-    self:Print(string.rep("-", 40))
-    self:Print("DEBUG: [RefreshGroupList] called")
-    self:Print("DEBUG: [RefreshGroupList] stack trace:\n" .. debugstack(2, 10, 10))
     if self.db and self.db.profile and self.db.profile.debug and self.db.profile.debug.enabled then
+        self:Print(string.rep("-", 40))
+        self:Print("DEBUG: [RefreshGroupList] called")
+        self:Print("DEBUG: [RefreshGroupList] stack trace:\n" .. debugstack(2, 10, 10))
         self:Print("DEBUG: [RefreshGroupList] groupsScrollFrame at entry: " .. tostring(self.groupsScrollFrame) .. "\n" .. debugstack(2, 10, 10))
     end
     if not self.groupsScrollFrame then
-        self:Print("DEBUG: [RefreshGroupList] groupsScrollFrame is nil\n" .. debugstack(2, 10, 10))
+        if self.db and self.db.profile and self.db.profile.debug and self.db.profile.debug.enabled then
+            self:Print("DEBUG: [RefreshGroupList] groupsScrollFrame is nil\n" .. debugstack(2, 10, 10))
+        end
         return
     end
-    self:Print("DEBUG: 🔄 Groups in memory:")
-    for id, group in pairs(self.groups) do
-        self:Print(string.format("DEBUG:   - %s: %s (leader: %s)", id, group.title, group.leader))
-    end
     if self.db and self.db.profile and self.db.profile.debug and self.db.profile.debug.enabled then
+        self:Print("DEBUG: 🔄 Groups in memory:")
+        for id, group in pairs(self.groups) do
+            self:Print(string.format("DEBUG:   - %s: %s (leader: %s)", id, group.title, group.leader))
+        end
         self:Print("DEBUG: [RefreshGroupList] about to ReleaseChildren on groupsScrollFrame: " .. tostring(self.groupsScrollFrame))
     end
     self.groupsScrollFrame:ReleaseChildren()
@@ -2032,7 +2038,9 @@ function Grouper:CreateGroupFrame(group, tabType)
             if self.db and self.db.profile then
                 self.db.profile.lastRole = value
             end
-            self:Print("DEBUG: Group frame role set to " .. tostring(value))
+            if self.db and self.db.profile and self.db.profile.debug and self.db.profile.debug.enabled then
+                self:Print("DEBUG: Group frame role set to " .. tostring(value))
+            end
         end)
         buttonGroup:AddChild(groupRoleDropdown)
 
@@ -2040,8 +2048,10 @@ function Grouper:CreateGroupFrame(group, tabType)
         autoJoinButton:SetText("Auto-Join")
         autoJoinButton:SetWidth(120)
         autoJoinButton:SetCallback("OnClick", function()
-            self:Print("DEBUG: Auto-Join button clicked!")
-            self:Print(string.format("DEBUG: Group leader: %s", group.leader))
+            if self.db and self.db.profile and self.db.profile.debug and self.db.profile.debug.enabled then
+                self:Print("DEBUG: Auto-Join button clicked!")
+                self:Print(string.format("DEBUG: Group leader: %s", group.leader))
+            end
             local playerName = UnitName("player")
             local fullPlayerName = Grouper.GetFullPlayerName(playerName)
             -- Set role from dropdown into cache before anything else
@@ -2101,13 +2111,17 @@ function Grouper:CreateGroupFrame(group, tabType)
                 groupId = group.id,
                 myRole = role
             }
-            self:Print("DEBUG: InviteRequest table:")
-            for k, v in pairs(inviteRequest) do
-                self:Print("  " .. k .. "=" .. tostring(v))
+            if self.db and self.db.profile and self.db.profile.debug and self.db.profile.debug.enabled then
+                self:Print("DEBUG: InviteRequest table:")
+                for k, v in pairs(inviteRequest) do
+                    self:Print("  " .. k .. "=" .. tostring(v))
+                end
             end
             local AceSerializer = LibStub("AceSerializer-3.0")
             local payload = AceSerializer:Serialize(inviteRequest)
-            self:Print("DEBUG: Sending invite request via AceComm to " .. group.leader)
+            if self.db and self.db.profile and self.db.profile.debug and self.db.profile.debug.enabled then
+                self:Print("DEBUG: Sending invite request via AceComm to " .. group.leader)
+            end
             self:SendComm("AUTOJOIN", payload, "WHISPER", group.leader)
                -- Also refresh My Groups tab if currently selected
                if self.tabGroup and type(self.tabGroup.GetSelectedTab) == "function" then
@@ -2294,6 +2308,24 @@ function Grouper:SetupOptions()
                             end
                         end,
                         get = function(info) return not self.db.profile.minimap.hide end,
+                    },
+                    debug = {
+                        name = "Debug Mode",
+                        desc = "Enable verbose debug logging for troubleshooting.",
+                        type = "toggle",
+                        order = 99,
+                        set = function(info, val)
+                            self.db.profile.debug = self.db.profile.debug or {}
+                            self.db.profile.debug.enabled = val
+                            if val then
+                                self:Print("Debugging is now ON.")
+                            else
+                                self:Print("Debugging is now OFF.")
+                            end
+                        end,
+                        get = function(info)
+                            return self.db.profile.debug and self.db.profile.debug.enabled or false
+                        end,
                     },
                 },
             },

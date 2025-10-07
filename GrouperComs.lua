@@ -22,7 +22,9 @@ function IsPlayerInGroupOrRaid(targetName)
 end
 -- Handle party invite requests for auto-accept functionality
 function Grouper:OnPartyInviteRequest(event, inviter)
-    print("DEBUG: Grouper OnPartyInviteRequest fired! Event:", event, "Inviter:", inviter)
+    if self.db and self.db.profile and self.db.profile.debug and self.db.profile.debug.enabled then
+        print("DEBUG: Grouper OnPartyInviteRequest fired! Event:", event, "Inviter:", inviter)
+    end
     -- Auto-join logic commented out except for WoW API group invite initiation
     -- if not self.db.profile.autoJoin.enabled then
     --     return
@@ -444,24 +446,26 @@ function Grouper:SendRequestDataViaChannel(data)
         UnitName("player"),
         time()
     )
-    
-    if self.db.profile.debug.enabled then
-        self:Print(string.format("DEBUG: ⚡ Sending REQUEST_DATA via direct channel %d: %s", channelIndex, message))
+
+    -- If debug is off, prefix with DEL (\127) to make it silent in chat
+    local debugEnabled = self.db and self.db.profile and self.db.profile.debug and self.db.profile.debug.enabled
+    local sendMessage = message
+    if not debugEnabled then
+        sendMessage = string.char(127) .. message
     end
-    
-    -- Send via direct channel message
-    if self.db and self.db.profile and self.db.profile.debug and self.db.profile.debug.enabled then
+
+    if debugEnabled then
+        self:Print(string.format("DEBUG: ⚡ Sending REQUEST_DATA via direct channel %d: %s", channelIndex, message))
         self:Print("DEBUG: [SendChatMessage] About to call SendChatMessage for REQUEST_DATA")
         self:Print(string.format("Args: message='%s', type='CHANNEL', language=nil, channelIndex=%s", message, tostring(channelIndex)))
         self:Print("DEBUG: [SendChatMessage] Stack trace:")
         self:Print(debugstack(2, 10, 10))
-    end
-    SendChatMessage(message, "CHANNEL", nil, channelIndex)
-    
-    if self.db.profile.debug.enabled then
+        SendChatMessage(message, "CHANNEL", nil, channelIndex)
         self:Print("DEBUG: ✓ REQUEST_DATA sent via direct channel")
+    else
+        -- Send as silent protocol message
+        SendChatMessage(sendMessage, "CHANNEL", nil, channelIndex)
     end
-    
     return true
 end
 
@@ -872,42 +876,50 @@ function Grouper:OnChannelMessage(event, message, sender, language, channelStrin
         self:Print(string.format("DEBUG: [RAW EVENT] CHAT_MSG_CHANNEL fired - Channel: %d (%s), Sender: %s", channelNumber or 0, channelName or "nil", sender or "nil"))
     end
     
+    -- Strip leading non-printing characters (DEL, TAB, etc.) from message for protocol matching
+    local cleanMessage = message:gsub("^[\127\t\n\r ]+", "")
+
     -- Check for direct test messages
-    if message:match("^GRPR_DIRECT_TEST:") then
-        local testSender = message:match("^GRPR_DIRECT_TEST:(.+)")
+    if cleanMessage:match("^GRPR_DIRECT_TEST:") then
+        local testSender = cleanMessage:match("^GRPR_DIRECT_TEST:(.+)")
         if self.db.profile.debug.enabled then
             self:Print(string.format("DEBUG: ✓ RECEIVED DIRECT CHANNEL TEST from %s (sent by %s)", sender, testSender))
         end
         return
     end
-    
+
     -- Check for direct GROUP_UPDATE messages
-    if message:match("^GRPR_GROUP_UPDATE:") then
+    if cleanMessage:match("^GRPR_GROUP_UPDATE:") then
         if self.db.profile.debug.enabled then
             self:Print(string.format("DEBUG: ✓ RECEIVED DIRECT CHANNEL GROUP_UPDATE from %s", sender))
         end
-        self:HandleDirectGroupUpdate(message, sender)
+        self:HandleDirectGroupUpdate(cleanMessage, sender)
         return
     end
-    
+
     -- Check for direct GROUP_REMOVE messages
-    if message:match("^GRPR_GROUP_REMOVE:") then
+    if cleanMessage:match("^GRPR_GROUP_REMOVE:") then
         if self.db.profile.debug.enabled then
             self:Print(string.format("DEBUG: ✓ RECEIVED DIRECT CHANNEL GROUP_REMOVE from %s", sender))
         end
-        self:HandleDirectGroupRemove(message, sender)
+        self:HandleDirectGroupRemove(cleanMessage, sender)
         return
     end
-    
+
     -- Check for direct REQUEST_DATA messages
-    if message:match("^GRPR_REQUEST_DATA:") then
-        if self.db.profile.debug.enabled then
+    local debugEnabled = self.db and self.db.profile and self.db.profile.debug and self.db.profile.debug.enabled
+    if cleanMessage:match("^GRPR_REQUEST_DATA:") then
+        if debugEnabled then
             self:Print(string.format("DEBUG: ✓ RECEIVED DIRECT CHANNEL REQUEST_DATA from %s", sender))
+            self:Print(string.format("[Grouper] [%s]: %s", sender, cleanMessage))
         end
-        self:HandleDirectRequestData(message, sender)
+        -- Extra guard: never print protocol message unless debug is enabled
+        -- (in case self:Print is overridden or called elsewhere)
+        -- Do NOT print [Grouper] protocol message here unless debug is on
+        self:HandleDirectRequestData(cleanMessage, sender)
         return
     end
-    
+    --]]
     -- Check if this is our protocol message (legacy GRPR# or GRPR_GROUP# or GRPR_MP# or GRPR_REQ# or new AceComm-style GROUPER_)
     if not message:match("^GRPR#") and not message:match("^GRPR_GROUP#") and not message:match("^GRPR_MP#") and not message:match("^GRPR_REQ#") and not message:match("^GROUPER_") then
         if self.db.profile.debug.enabled then
@@ -1376,10 +1388,12 @@ end
 
 -- AceComm message handler
 function Grouper:OnCommReceived(prefix, message, distribution, sender)
-    print("DEBUG: Grouper OnCommReceived fired! Prefix:", prefix, "Sender:", sender, "Distribution:", distribution)
-    self:Print("DEBUG: [RECEIVER] OnCommReceived fired!")
-    self:Print(string.format("DEBUG: [RECEIVER] prefix='%s', sender='%s', distribution='%s', message='%s'", prefix, sender, distribution, tostring(message)))
-    self:Print(string.format("DEBUG: [GLOBAL] OnCommReceived - prefix: %s, sender: %s, distribution: %s", prefix, sender, distribution))
+    if self.db and self.db.profile and self.db.profile.debug and self.db.profile.debug.enabled then
+        print("DEBUG: Grouper OnCommReceived fired! Prefix:", prefix, "Sender:", sender, "Distribution:", distribution)
+        self:Print("DEBUG: [RECEIVER] OnCommReceived fired!")
+        self:Print(string.format("DEBUG: [RECEIVER] prefix='%s', sender='%s', distribution='%s', message='%s'", prefix, sender, distribution, tostring(message)))
+        self:Print(string.format("DEBUG: [GLOBAL] OnCommReceived - prefix: %s, sender: %s, distribution: %s", prefix, sender, distribution))
+    end
     if self.db.profile.debug.enabled then
         self:Print(string.format("DEBUG: OnCommReceived called - prefix: %s, sender: %s, distribution: %s", prefix, sender, distribution))
     end
@@ -1606,19 +1620,23 @@ end
 
 -- Handle Auto-Join invite requests via AceComm
 function Grouper:OnAutoJoinRequest(prefix, message, distribution, sender)
-    self:Print("DEBUG: [RECEIVER] OnAutoJoinRequest fired!")
-    self:Print(string.format("DEBUG: [RECEIVER] prefix='%s', sender='%s', distribution='%s', message='%s'", prefix, sender, distribution, tostring(message)))
-    self:Print(string.format("DEBUG: OnAutoJoinRequest called - prefix: %s, sender: %s, distribution: %s", prefix, sender, distribution))
-    self:Print(string.format("DEBUG: Raw auto-join payload: %s", tostring(message)))
+    if self.db and self.db.profile and self.db.profile.debug and self.db.profile.debug.enabled then
+        self:Print("DEBUG: [RECEIVER] OnAutoJoinRequest fired!")
+        self:Print(string.format("DEBUG: [RECEIVER] prefix='%s', sender='%s', distribution='%s', message='%s'", prefix, sender, distribution, tostring(message)))
+        self:Print(string.format("DEBUG: OnAutoJoinRequest called - prefix: %s, sender: %s, distribution: %s", prefix, sender, distribution))
+        self:Print(string.format("DEBUG: Raw auto-join payload: %s", tostring(message)))
+    end
     local AceSerializer = LibStub("AceSerializer-3.0")
     local success, inviteRequest = AceSerializer:Deserialize(message)
     if not success or type(inviteRequest) ~= "table" or inviteRequest.type ~= "INVITE_REQUEST" then
         self:Print("DEBUG: Invalid auto-join AceSerializer payload format")
         return
     end
-    self:Print("DEBUG: Deserialized inviteRequest table:")
-    for k, v in pairs(inviteRequest) do
-        self:Print("  " .. k .. "=" .. tostring(v))
+    if self.db and self.db.profile and self.db.profile.debug and self.db.profile.debug.enabled then
+        self:Print("DEBUG: Deserialized inviteRequest table:")
+        for k, v in pairs(inviteRequest) do
+            self:Print("  " .. k .. "=" .. tostring(v))
+        end
     end
 
     -- Check for duplicate tank or healer in group
@@ -1678,30 +1696,36 @@ function Grouper:OnAutoJoinRequest(prefix, message, distribution, sender)
     end
     -- Force full UI rebuild of the 'manage' tab after auto-join
     if self.mainFrame and self.mainFrame:IsShown() and self.tabGroup then
-        self:Print("DEBUG: About to call self.tabGroup:SelectTab('manage') after auto-join")
+        if self.db and self.db.profile and self.db.profile.debug and self.db.profile.debug.enabled then
+            self:Print("DEBUG: About to call self.tabGroup:SelectTab('manage') after auto-join")
+        end
         local success, err = pcall(function()
             self.tabGroup:SelectTab("manage")
         end)
-        if success then
-            self:Print("DEBUG: self.tabGroup:SelectTab('manage') called successfully")
-        else
-            self:Print("ERROR: self.tabGroup:SelectTab('manage') failed: " .. tostring(err))
+        if self.db and self.db.profile and self.db.profile.debug and self.db.profile.debug.enabled then
+            if success then
+                self:Print("DEBUG: self.tabGroup:SelectTab('manage') called successfully")
+            else
+                self:Print("ERROR: self.tabGroup:SelectTab('manage') failed: " .. tostring(err))
+            end
         end
     else
-        self:Print("DEBUG: mainFrame or tabGroup not ready for SelectTab('manage') after auto-join")
+        if self.db and self.db.profile and self.db.profile.debug and self.db.profile.debug.enabled then
+            self:Print("DEBUG: mainFrame or tabGroup not ready for SelectTab('manage') after auto-join")
+        end
     end
     local inviteName = inviteRequest.fullName or inviteRequest.requester
-    if self.db.profile.debug.enabled then
+    if self.db and self.db.profile and self.db.profile.debug and self.db.profile.debug.enabled then
         self:Print(string.format("DEBUG: InviteUnit will use: requester='%s', fullName='%s', chosen='%s'", tostring(inviteRequest.requester), tostring(inviteRequest.fullName), tostring(inviteName)))
     end
     if type(inviteName) == "string" and inviteName ~= "" then
-        if self.db.profile.debug.enabled then
+        if self.db and self.db.profile and self.db.profile.debug and self.db.profile.debug.enabled then
             self:Print(string.format("DEBUG: About to call InviteUnit('%s')", inviteName))
         end
         local inviteSuccess, inviteError = pcall(function()
             InviteUnit(inviteName)
         end)
-        if self.db.profile.debug.enabled then
+        if self.db and self.db.profile and self.db.profile.debug and self.db.profile.debug.enabled then
             self:Print("DEBUG: Returned from InviteUnit")
             if inviteSuccess then
                 self:Print(string.format("✓ Auto-invited %s via Grouper Auto-Join", inviteName))
@@ -1710,7 +1734,7 @@ function Grouper:OnAutoJoinRequest(prefix, message, distribution, sender)
             end
         end
     else
-        if self.db.profile.debug.enabled then
+        if self.db and self.db.profile and self.db.profile.debug and self.db.profile.debug.enabled then
             self:Print("ERROR: Invalid inviteName for InviteUnit")
         end
     end
@@ -1718,10 +1742,13 @@ end
 
 -- Common message processing function
 function Grouper:ProcessReceivedMessage(messageType, data, sender)
-    print("DEBUG: Grouper ProcessReceivedMessage fired! Type:", messageType, "Sender:", sender)
-    print("DEBUG: Grouper OnAutoJoinRequest fired! Prefix:", prefix, "Sender:", sender, "Distribution:", distribution)
-    print("DEBUG: Grouper SendGroupUpdateViaChannel fired! GroupData:", groupData and groupData.id)
-    print("DEBUG: Grouper SendRequestDataViaChannel fired! Data:", data)
+    if self.db and self.db.profile and self.db.profile.debug and self.db.profile.debug.enabled then
+        print("DEBUG: Grouper ProcessReceivedMessage fired! Type:", messageType, "Sender:", sender)
+        -- The following lines reference variables that may not be in scope; only print if available
+        if type(prefix) ~= "nil" then print("DEBUG: Grouper OnAutoJoinRequest fired! Prefix:", prefix, "Sender:", sender, "Distribution:", distribution) end
+        if type(groupData) ~= "nil" then print("DEBUG: Grouper SendGroupUpdateViaChannel fired! GroupData:", groupData and groupData.id) end
+        print("DEBUG: Grouper SendRequestDataViaChannel fired! Data:", data)
+    end
     if self.db.profile.debug.enabled then
         self:Print(string.format("DEBUG: 🎯 ProcessReceivedMessage called: messageType=%s, sender=%s", tostring(messageType), tostring(sender)))
         self:Print(string.format("DEBUG: data type: %s", type(data)))
