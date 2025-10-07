@@ -372,6 +372,33 @@ GrouperEventFrame:SetScript("OnEvent", function(self, event, msg)
                     Grouper:Print("DEBUG: [Disband] Removed " .. name .. " from cache after disband.")
                 end
             end
+            -- Rebuild group.members for the group(s) led by the player to only contain the leader
+            local normLeaderName = Grouper.NormalizeFullPlayerName(leaderName)
+            for groupId, group in pairs(Grouper.groups) do
+                if Grouper.NormalizeFullPlayerName(group.leader) == normLeaderName then
+                    local leaderInfo = Grouper.players[normLeaderName]
+                    group.members = {}
+                    if leaderInfo then
+                        table.insert(group.members, {
+                            name = leaderInfo.fullName or leaderName,
+                            class = leaderInfo.class or "?",
+                            race = leaderInfo.race or "?",
+                            level = leaderInfo.level or "?",
+                            role = leaderInfo.role or "?",
+                            leader = true
+                        })
+                    else
+                        table.insert(group.members, {
+                            name = leaderName,
+                            class = "?",
+                            race = "?",
+                            level = "?",
+                            role = "?",
+                            leader = true
+                        })
+                    end
+                end
+            end
             if Grouper.db and Grouper.db.profile and Grouper.db.profile.debug and Grouper.db.profile.debug.enabled then
                 Grouper:Print("DEBUG: [Disband] Player cache after removal:")
                 for name, info in pairs(Grouper.players) do
