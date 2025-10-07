@@ -99,7 +99,7 @@ function Grouper:HandleJoinedGroup()
             return class:sub(1,1):upper() .. class:sub(2):lower()
         end
         if self.players then
-            local groupLeader = group.leader
+            local groupLeader = Grouper.NormalizeFullPlayerName(group.leader)
             for playerKey, playerInfo in pairs(self.players) do
                 -- Only consider FullName keys (those containing a dash)
                 if type(playerKey) == "string" and string.find(playerKey, "-") then
@@ -123,6 +123,9 @@ function Grouper:HandleJoinedGroup()
                         else
                             playerInfo.leader = false
                         end
+                        -- Ensure leader status is saved in cache
+                        self.players[normKey] = self.players[normKey] or {}
+                        self.players[normKey].leader = playerInfo.leader
                         table.insert(group.members, {
                             name = playerInfo.fullName,
                             class = CamelCaseClass(playerInfo.class or "?"),
@@ -136,7 +139,7 @@ function Grouper:HandleJoinedGroup()
             end
             -- If leader not found in self.players, add them explicitly
             if not leaderFound and groupLeader then
-                local normLeader = Grouper.NormalizeFullPlayerName(groupLeader)
+                local normLeader = groupLeader
                 local leaderInfo = self.players[normLeader]
                 if not leaderInfo then
                     for k, info in pairs(self.players) do
@@ -155,6 +158,9 @@ function Grouper:HandleJoinedGroup()
                     end
                 end
                 local myRole = leaderInfo and leaderInfo.role or "?"
+                -- Ensure leader status is saved in cache
+                self.players[normLeader] = self.players[normLeader] or {}
+                self.players[normLeader].leader = true
                 table.insert(group.members, {
                     name = groupLeader,
                     class = CamelCaseClass(leaderInfo and leaderInfo.class or UnitClass("player") or "?"),
@@ -211,7 +217,7 @@ GrouperEventFrame:SetScript("OnEvent", function(self, event, msg)
             local fullPlayerName = Grouper.GetFullPlayerName(playerName)
             local isLeader = false
             for groupId, group in pairs(Grouper.groups) do
-                if group.leader == fullPlayerName then
+                if Grouper.NormalizeFullPlayerName(group.leader) == Grouper.NormalizeFullPlayerName(fullPlayerName) then
                     isLeader = true
                     break
                 end
@@ -244,7 +250,7 @@ GrouperEventFrame:SetScript("OnEvent", function(self, event, msg)
             local fullPlayerName = Grouper.GetFullPlayerName(playerName)
             local isLeader = false
             for groupId, group in pairs(Grouper.groups) do
-                if group.leader == fullPlayerName then
+                if Grouper.NormalizeFullPlayerName(group.leader) == Grouper.NormalizeFullPlayerName(fullPlayerName) then
                     isLeader = true
                 end
             end
@@ -441,7 +447,7 @@ function Grouper:CreateGroup(groupData)
     -- Prevent creating a second group if player already has one
     local playerFullName = Grouper.GetFullPlayerName(UnitName("player"))
     for _, group in pairs(self.groups or {}) do
-        if group.leader == playerFullName then
+        if Grouper.NormalizeFullPlayerName(group.leader) == Grouper.NormalizeFullPlayerName(playerFullName) then
             self:Print("Error: You’ve already formed a group. This isn’t Orgrimmar Trade Chat — you can’t just spam invites forever.")
             return nil
         end
@@ -476,7 +482,7 @@ function Grouper:CreateGroup(groupData)
                 info.groupId = self:GenerateGroupID() -- Will be overwritten below, but ensures it's set
                 -- Ensure name and fullName are set for player.self
                 local name, realm = UnitName("player")
-                info.name = name
+                info.name = playerFullName -- Always use full name with realm (with spaces)
                 info.fullName = playerFullName
                 if role then
                     info.role = role
@@ -781,8 +787,16 @@ function Grouper:HandleGroupUpdate(groupData, sender)
         return
     end
     
+    local normSender = Grouper.NormalizeFullPlayerName(sender)
+    local normLeader = Grouper.NormalizeFullPlayerName(groupData.leader)
     if self.db.profile.debug.enabled then
-        self:Print(string.format("DEBUG: Comparing full names - sender: %s, leader: %s", sender, groupData.leader))
+        self:Print(string.format("DEBUG: Comparing full names (normalized) - sender: %s, leader: %s", normSender, normLeader))
+    end
+    if normSender ~= normLeader then
+        if self.db.profile.debug.enabled then
+            self:Print(string.format("DEBUG: Rejecting group update - sender mismatch (normalized: %s vs %s)", normSender, normLeader))
+        end
+        return
     end
     
     -- Always update player info cache from groupData.members before any filtering or group logic
@@ -790,6 +804,7 @@ function Grouper:HandleGroupUpdate(groupData, sender)
         [1] = "Human", [2] = "Orc", [3] = "Dwarf", [4] = "NightElf", [5] = "Undead", [6] = "Tauren", [7] = "Gnome", [8] = "Troll", [9] = "Goblin", [10] = "BloodElf", [11] = "Draenei", [12] = "Worgen", [13] = "Pandaren"
     }
     if groupData.members then
+        local normLeader = groupData.leader and Grouper.NormalizeFullPlayerName(groupData.leader)
         for _, m in ipairs(groupData.members) do
             local fullName = m.name
             if fullName then
@@ -817,11 +832,17 @@ function Grouper:HandleGroupUpdate(groupData, sender)
                 end
                 self.players[normFullName].level = m.level or "?"
                 self.players[normFullName].role = m.role or m.myRole or "?"
+                -- Set leader field in cache for the leader, false for others
+                if normLeader and normFullName == normLeader then
+                    self.players[normFullName].leader = true
+                else
+                    self.players[normFullName].leader = false
+                end
             end
         end
     end
     -- Now proceed with group filtering and storage
-    if Grouper.GetFullPlayerName(groupData.leader) == Grouper.GetFullPlayerName(sender) then
+    if Grouper.NormalizeFullPlayerName(Grouper.GetFullPlayerName(groupData.leader)) == Grouper.NormalizeFullPlayerName(Grouper.GetFullPlayerName(sender)) then
         -- Remove stale groups led by the same leader before adding the new group
         for groupId, group in pairs(self.groups) do
             if group.leader == groupData.leader and groupId ~= groupData.id then
@@ -883,7 +904,7 @@ function Grouper:HandleGroupUpdate(groupData, sender)
         end
     else
         if self.db.profile.debug.enabled then
-            self:Print(string.format("DEBUG: Rejecting group update - sender mismatch (full: %s vs %s)", sender, groupData.leader))
+            self:Print(string.format("DEBUG: Rejecting group update - sender mismatch (normalized: %s vs %s)", Grouper.NormalizeFullPlayerName(sender), Grouper.NormalizeFullPlayerName(groupData.leader)))
         end
     end
     
@@ -920,7 +941,7 @@ end
 -- Handle incoming group removals
 function Grouper:HandleGroupRemove(data, sender)
     local group = self.groups[data.id]
-    if group and group.leader == sender then
+    if group and Grouper.NormalizeFullPlayerName(group.leader) == Grouper.NormalizeFullPlayerName(sender) then
         self.groups[data.id] = nil
     end
 end
@@ -928,9 +949,10 @@ end
 -- Remove group by leader name
 function Grouper:RemoveGroupByLeader(leader)
     if not self.groups then return end
+    local normLeader = Grouper.NormalizeFullPlayerName(leader)
     local toRemove = {}
     for groupId, group in pairs(self.groups) do
-        if group.leader == leader then
+        if Grouper.NormalizeFullPlayerName(group.leader) == normLeader then
             table.insert(toRemove, groupId)
         end
     end
@@ -984,7 +1006,8 @@ function Grouper:GetFilteredGroups()
         end
         -- Faction filter: Only show groups with leader of same faction
         if include and playerFaction and playerFaction ~= "Neutral" then
-            local leaderInfo = self.players and self.players[group.leader]
+            local normLeader = group.leader and Grouper.NormalizeFullPlayerName(group.leader)
+            local leaderInfo = self.players and normLeader and self.players[normLeader]
             local leaderRace = leaderInfo and leaderInfo.race
             local leaderFaction = nil
             if leaderRace then
@@ -2204,7 +2227,8 @@ function Grouper:CreateGroupFrame(group, tabType)
             if self.db and self.db.profile and self.db.profile.debug and self.db.profile.debug.enabled then
                 self:Print("DEBUG: Sending invite request via AceComm to " .. group.leader)
             end
-            self:SendComm("AUTOJOIN", payload, "WHISPER", group.leader)
+            -- Always normalize whisper target (remove spaces from realm)
+            self:SendComm("AUTOJOIN", payload, "WHISPER", Grouper.NormalizeFullPlayerName(group.leader))
                -- Also refresh My Groups tab if currently selected
                if self.tabGroup and type(self.tabGroup.GetSelectedTab) == "function" then
                    local selectedTab = self.tabGroup:GetSelectedTab()
