@@ -2110,16 +2110,15 @@ function Grouper:CreateGroupFrame(group, tabType)
             self:Print("DEBUG: Sending invite request via AceComm to " .. group.leader)
             self:SendComm("AUTOJOIN", payload, "WHISPER", group.leader)
                -- Also refresh My Groups tab if currently selected
-               if self.tabGroup and self.tabGroup:GetSelectedTab() == "manage" then
-                   self:RefreshGroupList("manage")
-                   -- Force full UI redraw of My Groups tab
-                   if self.mainFrame then
-                       self:ShowTab(self.mainFrame, "manage")
+               if self.tabGroup and type(self.tabGroup.GetSelectedTab) == "function" then
+                   local selectedTab = self.tabGroup:GetSelectedTab()
+                   if selectedTab == "manage" then
+                       self:RefreshGroupList("manage")
+                       -- Force full UI redraw of My Groups tab
+                       if self.mainFrame then
+                           self:ShowTab(self.mainFrame, "manage")
+                       end
                    end
-               end
-               -- Refresh My Groups tab if currently selected
-               if self.tabGroup and self.tabGroup:GetSelectedTab() == "manage" then
-                   self:RefreshGroupList("manage")
                end
         end)
         buttonGroup:AddChild(autoJoinButton)
