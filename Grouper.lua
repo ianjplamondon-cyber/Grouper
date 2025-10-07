@@ -1794,45 +1794,49 @@ function Grouper:CreateGroupManageFrame(group, tabType)
     frame:AddChild(buttonGroup)
 
     if tabType == "manage" then
-        local editButton = AceGUI:Create("Button")
-        editButton:SetText("Edit")
-        editButton:SetWidth(100)
-        editButton:SetCallback("OnClick", function()
-            self:ShowEditGroupDialog(group)
-        end)
-        buttonGroup:AddChild(editButton)
+        local playerName = UnitName("player")
+        local fullPlayerName = Grouper.GetFullPlayerName(playerName)
+        if group.leader == fullPlayerName then
+            local editButton = AceGUI:Create("Button")
+            editButton:SetText("Edit")
+            editButton:SetWidth(100)
+            editButton:SetCallback("OnClick", function()
+                self:ShowEditGroupDialog(group)
+            end)
+            buttonGroup:AddChild(editButton)
 
-        local removeButton = AceGUI:Create("Button")
-        removeButton:SetText("Remove")
-        removeButton:SetWidth(100)
-        removeButton:SetCallback("OnClick", function()
-            -- Find the group key by matching group.id to the key in self.groups
-            local groupKey = nil
-            for k, v in pairs(self.groups) do
-                if k == group.id then
-                    groupKey = k
-                    break
+            local removeButton = AceGUI:Create("Button")
+            removeButton:SetText("Remove")
+            removeButton:SetWidth(100)
+            removeButton:SetCallback("OnClick", function()
+                -- Find the group key by matching group.id to the key in self.groups
+                local groupKey = nil
+                for k, v in pairs(self.groups) do
+                    if k == group.id then
+                        groupKey = k
+                        break
+                    end
                 end
-            end
-            if groupKey then
-                self:RemoveGroup(groupKey)
-            else
-                self:Print("Error: Could not find group key for removal.")
-            end
-            if self.tabGroup then
-                self.tabGroup:SelectTab("manage")
-            end
-        end)
-        buttonGroup:AddChild(removeButton)
+                if groupKey then
+                    self:RemoveGroup(groupKey)
+                else
+                    self:Print("Error: Could not find group key for removal.")
+                end
+                if self.tabGroup then
+                    self.tabGroup:SelectTab("manage")
+                end
+            end)
+            buttonGroup:AddChild(removeButton)
 
-        local syncButton = AceGUI:Create("Button")
-        syncButton:SetText("Sync")
-        syncButton:SetWidth(100)
-        syncButton:SetCallback("OnClick", function()
-            self:Print("DEBUG: Sync button clicked! Broadcasting group update...")
-            Grouper:SendGroupUpdateViaChannel(group)
-        end)
-        buttonGroup:AddChild(syncButton)
+            local syncButton = AceGUI:Create("Button")
+            syncButton:SetText("Sync")
+            syncButton:SetWidth(100)
+            syncButton:SetCallback("OnClick", function()
+                self:Print("DEBUG: Sync button clicked! Broadcasting group update...")
+                Grouper:SendGroupUpdateViaChannel(group)
+            end)
+            buttonGroup:AddChild(syncButton)
+        end
     end
 
     return frame
