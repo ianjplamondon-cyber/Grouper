@@ -1,3 +1,16 @@
+-- Normalize a full player name for robust comparison (removes spaces from realm part only)
+function Grouper.NormalizeFullPlayerName(name)
+    if not name then return "" end
+    if name:find("-") then
+        local base, r = name:match("^(.-)%-(.+)$")
+        if base and r then
+            r = r:gsub("%s", "")
+            return base .. "-" .. r
+        end
+        return name
+    end
+    return name
+end
 -- Debug command to list all cached groups
 Grouper:RegisterChatCommand("groupercg", function()
     local groups = Grouper.groups

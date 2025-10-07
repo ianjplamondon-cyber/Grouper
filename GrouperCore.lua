@@ -303,7 +303,7 @@ function Grouper:OnInitialize()
         local fullName = name .. "-" .. realm
         local lastRole = self.db and self.db.profile and self.db.profile.lastRole
         -- Only update role if entry exists, do not create duplicate
-        local info = self.players[fullName] or self.players[name]
+        local info = self.players[fullName]
         if info then
             if lastRole and (lastRole == "tank" or lastRole == "healer" or lastRole == "dps") then
                 info.role = lastRole
@@ -311,7 +311,7 @@ function Grouper:OnInitialize()
             self.playerInfo = info
         else
             local newInfo = {
-                name = name,
+                name = fullName, -- Always use full name (with realm) for consistency
                 class = class,
                 race = race,
                 level = level,

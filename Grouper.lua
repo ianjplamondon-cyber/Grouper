@@ -2,25 +2,40 @@
 function Grouper:LeaderRemoveMemberFromCache(leftName)
     local playerName = UnitName("player")
     local fullPlayerName = Grouper.GetFullPlayerName(playerName)
+    local normFullPlayerName = Grouper.NormalizeFullPlayerName(fullPlayerName)
     -- Only act if current player is the party leader
     local isLeader = false
     for groupId, group in pairs(self.groups) do
-        if group.leader == fullPlayerName then
+    if Grouper.NormalizeFullPlayerName(group.leader) == normFullPlayerName then
             isLeader = true
             break
         end
     end
     if not isLeader then
-        if self.db and self.db.profile and self.db.profile.debug and self.db.profile.debug.enabled then
-            self:Print("DEBUG: [LeaderRemoveMemberFromCache] Skipped: Not leader.")
+        -- Non-leader: clear all non-local players from self.players
+        local playerName = UnitName("player")
+        local fullPlayerName = Grouper.GetFullPlayerName(playerName)
+        local normLocal = Grouper.NormalizeFullPlayerName(fullPlayerName)
+        for cacheName, info in pairs(self.players) do
+            if Grouper.NormalizeFullPlayerName(cacheName) ~= normLocal then
+                self.players[cacheName] = nil
+                if self.db and self.db.profile and self.db.profile.debug and self.db.profile.debug.enabled then
+                    self:Print("DEBUG: [LeaderRemoveMemberFromCache] Non-leader left group, removed " .. cacheName .. " from cache.")
+                end
+            end
         end
         return
     end
-    -- Remove from cache (self.players)
+    -- Leader logic remains unchanged
     local leaderName = Grouper.GetFullPlayerName(UnitName("player"))
     for cacheName, info in pairs(self.players) do
-        local isDeparted = (cacheName == leftName or cacheName == Grouper.GetFullPlayerName(leftName) or (info.fullName and info.fullName == leftName) or (info.fullName and info.fullName == Grouper.GetFullPlayerName(leftName)))
-        local isLeader = (cacheName == leaderName or (info.fullName and info.fullName == leaderName))
+        local normCacheName = Grouper.NormalizeFullPlayerName(cacheName)
+        local normLeftName = Grouper.NormalizeFullPlayerName(leftName)
+        local normInfoFullName = info.fullName and Grouper.NormalizeFullPlayerName(info.fullName) or nil
+        local normLeftNameFull = Grouper.NormalizeFullPlayerName(Grouper.GetFullPlayerName(leftName))
+        local isDeparted = (normCacheName == normLeftName or normCacheName == normLeftNameFull or (normInfoFullName and normInfoFullName == normLeftName) or (normInfoFullName and normInfoFullName == normLeftNameFull))
+        local normLeaderName = Grouper.NormalizeFullPlayerName(leaderName)
+        local isLeader = (normCacheName == normLeaderName or (normInfoFullName and normInfoFullName == normLeaderName))
         if isDeparted and not isLeader then
             self.players[cacheName] = nil
             if self.db and self.db.profile and self.db.profile.debug and self.db.profile.debug.enabled then
@@ -31,7 +46,7 @@ function Grouper:LeaderRemoveMemberFromCache(leftName)
 
     -- Update group member count only
     for groupId, group in pairs(self.groups) do
-        if group.leader == Grouper.GetFullPlayerName(UnitName("player")) and group.members then
+    if Grouper.NormalizeFullPlayerName(group.leader) == Grouper.NormalizeFullPlayerName(Grouper.GetFullPlayerName(UnitName("player"))) and group.members then
             -- If disband event, set to 1 (just leader)
             if leftName == "DISBAND" then
                 group.members = { group.leader }
@@ -88,9 +103,21 @@ function Grouper:HandleJoinedGroup()
             for playerKey, playerInfo in pairs(self.players) do
                 -- Only consider FullName keys (those containing a dash)
                 if type(playerKey) == "string" and string.find(playerKey, "-") then
+                    local normKey = Grouper.NormalizeFullPlayerName(playerKey)
+                    if normKey ~= playerKey then
+                        -- Merge and remove old key
+                        for field, val in pairs(playerInfo) do
+                            self.players[normKey] = self.players[normKey] or {}
+                            if self.players[normKey][field] == nil then
+                                self.players[normKey][field] = val
+                            end
+                        end
+                        self.players[playerKey] = nil
+                        playerInfo = self.players[normKey]
+                    end
                     if playerInfo and playerInfo.groupId == groupId and playerInfo.lastSeen then
                         -- Set leader attribute
-                        if playerKey == groupLeader then
+                        if normKey == groupLeader then
                             playerInfo.leader = true
                             leaderFound = true
                         else
@@ -109,11 +136,20 @@ function Grouper:HandleJoinedGroup()
             end
             -- If leader not found in self.players, add them explicitly
             if not leaderFound and groupLeader then
-                local leaderInfo = self.players[groupLeader]
+                local normLeader = Grouper.NormalizeFullPlayerName(groupLeader)
+                local leaderInfo = self.players[normLeader]
                 if not leaderInfo then
-                    for _, info in pairs(self.players) do
-                        if info.fullName == groupLeader then
-                            leaderInfo = info
+                    for k, info in pairs(self.players) do
+                        if Grouper.NormalizeFullPlayerName(k) == normLeader then
+                            -- Merge and remove old key
+                            for field, val in pairs(info) do
+                                self.players[normLeader] = self.players[normLeader] or {}
+                                if self.players[normLeader][field] == nil then
+                                    self.players[normLeader][field] = val
+                                end
+                            end
+                            self.players[k] = nil
+                            leaderInfo = self.players[normLeader]
                             break
                         end
                     end
@@ -481,14 +517,27 @@ function Grouper:CreateGroup(groupData)
                     else
                         role = "?"
                     end
-                    if not self.players[fullName] then self.players[fullName] = {} end
-                    self.players[fullName].fullName = fullName
-                    self.players[fullName].class = class or classLocalized or "?"
-                    self.players[fullName].race = race or raceLocalized or "?"
-                    self.players[fullName].level = level or "?"
-                    self.players[fullName].role = role
-                    self.players[fullName].lastSeen = time()
-                    self.players[fullName].leader = false -- Always set to false for non-leader
+                    local normFullName = Grouper.NormalizeFullPlayerName(fullName)
+                    -- Merge: If a non-normalized version exists, update and remove it
+                    for k, v in pairs(self.players) do
+                        if Grouper.NormalizeFullPlayerName(k) == normFullName and k ~= normFullName then
+                            for field, val in pairs(v) do
+                                self.players[normFullName] = self.players[normFullName] or {}
+                                if self.players[normFullName][field] == nil then
+                                    self.players[normFullName][field] = val
+                                end
+                            end
+                            self.players[k] = nil
+                        end
+                    end
+                    if not self.players[normFullName] then self.players[normFullName] = {} end
+                    self.players[normFullName].fullName = fullName
+                    self.players[normFullName].class = class or classLocalized or "?"
+                    self.players[normFullName].race = race or raceLocalized or "?"
+                    self.players[normFullName].level = level or "?"
+                    self.players[normFullName].role = role
+                    self.players[normFullName].lastSeen = time()
+                    self.players[normFullName].leader = false -- Always set to false for non-leader
                 end
             end
         end
@@ -634,6 +683,17 @@ function Grouper:RemoveGroup(groupId)
     self:Print("DEBUG: [RemoveGroup] Removed groupId from self.groups: " .. tostring(groupId))
     self:SendComm("GROUP_REMOVE", {id = groupId})
 
+    -- Also update self.players: clear groupId and set leader=false for local player
+    local localPlayer = Grouper.GetFullPlayerName(UnitName("player"))
+    local normLocalPlayer = Grouper.NormalizeFullPlayerName(localPlayer)
+    if self.players and self.players[normLocalPlayer] then
+        self.players[normLocalPlayer].groupId = nil
+        self.players[normLocalPlayer].leader = false
+        if self.db and self.db.profile and self.db.profile.debug and self.db.profile.debug.enabled then
+            self:Print("DEBUG: [RemoveGroup] Cleared groupId and set leader=false for " .. tostring(localPlayer) .. " in self.players")
+        end
+    end
+
     self:Print(string.format("Removed group: %s", group.title))
     -- Print all group keys left in cache
     local count = 0
@@ -733,17 +793,30 @@ function Grouper:HandleGroupUpdate(groupData, sender)
         for _, m in ipairs(groupData.members) do
             local fullName = m.name
             if fullName then
-                if not self.players[fullName] then self.players[fullName] = {} end
-                self.players[fullName].fullName = fullName
-                self.players[fullName].class = m.class or m.classId or "?"
+                local normFullName = Grouper.NormalizeFullPlayerName(fullName)
+                -- Merge: If a non-normalized version exists, update and remove it
+                for k, v in pairs(self.players) do
+                    if Grouper.NormalizeFullPlayerName(k) == normFullName and k ~= normFullName then
+                        for field, val in pairs(v) do
+                            self.players[normFullName] = self.players[normFullName] or {}
+                            if self.players[normFullName][field] == nil then
+                                self.players[normFullName][field] = val
+                            end
+                        end
+                        self.players[k] = nil
+                    end
+                end
+                if not self.players[normFullName] then self.players[normFullName] = {} end
+                self.players[normFullName].fullName = fullName
+                self.players[normFullName].class = m.class or m.classId or "?"
                 -- Decode raceId to race name if needed
                 if m.race and type(m.race) == "number" then
-                    self.players[fullName].race = RACE_NAMES_BY_ID[m.race] or tostring(m.race)
+                    self.players[normFullName].race = RACE_NAMES_BY_ID[m.race] or tostring(m.race)
                 else
-                    self.players[fullName].race = m.race or "?"
+                    self.players[normFullName].race = m.race or "?"
                 end
-                self.players[fullName].level = m.level or "?"
-                self.players[fullName].role = m.role or m.myRole or "?"
+                self.players[normFullName].level = m.level or "?"
+                self.players[normFullName].role = m.role or m.myRole or "?"
             end
         end
     end
@@ -761,10 +834,13 @@ function Grouper:HandleGroupUpdate(groupData, sender)
         self.groups[groupData.id] = groupData
         -- Update player cache with groupId if local player is the leader
         local localPlayer = Grouper.GetFullPlayerName(UnitName("player"))
-        if self.players and self.players[localPlayer] and localPlayer == groupData.leader then
-            self.players[localPlayer].groupId = groupData.id
-            if self.db and self.db.profile and self.db.profile.debug and self.db.profile.debug.enabled then
-                self:Print(string.format("DEBUG: [HandleGroupUpdate] Set groupId=%s for player %s in cache", groupData.id, localPlayer))
+        if self.players then
+            local normLocalPlayer = Grouper.NormalizeFullPlayerName(localPlayer)
+            if self.players[normLocalPlayer] and normLocalPlayer == Grouper.NormalizeFullPlayerName(groupData.leader) then
+                self.players[normLocalPlayer].groupId = groupData.id
+                if self.db and self.db.profile and self.db.profile.debug and self.db.profile.debug.enabled then
+                    self:Print(string.format("DEBUG: [HandleGroupUpdate] Set groupId=%s for player %s in cache", groupData.id, localPlayer))
+                end
             end
         end
         if self.db.profile.debug.enabled then
