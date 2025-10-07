@@ -1,7 +1,7 @@
 # .pkgmeta
-package-as: SandPacker
+package-as: Grouper
 
-curseforge-project-id: 1341263
+curseforge-project-id: 1360261
 
 # Pull externals (examples — remove if you don’t need them)
 # externals:
