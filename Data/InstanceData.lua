@@ -26,6 +26,7 @@ DUNGEON_IDS = {
     ["Stratholme - Live"] = 24,
     ["Stratholme - Undead"] = 25,
     ["Scholomance"] = 26,
+    -- Raids
     ["Onyxia's Lair"] = 27,
     ["Molten Core"] = 28,
     ["Blackwing Lair"] = 29,
@@ -33,6 +34,7 @@ DUNGEON_IDS = {
     ["Ahn'Qiraj (AQ20)"] = 31,
     ["Temple of Ahn'Qiraj (AQ40)"] = 32,
     ["Naxxramas"] = 33,
+    -- Battlegrounds
     ["Warsong Gulch"] = 34,
     ["Arathi Basin"] = 35,
     ["Alterac Valley"] = 36,

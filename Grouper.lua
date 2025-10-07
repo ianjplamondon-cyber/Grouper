@@ -1247,7 +1247,9 @@ function Grouper:CreateBrowseTab(container)
     -- Build dungeon list for dropdown
     local dungeonList = {[""] = "All Dungeons"}
     for _, dungeon in ipairs(DUNGEONS) do
-        dungeonList[dungeon.name] = dungeon.name
+        if dungeon.id and dungeon.id >= 1 and dungeon.id <= 26 then
+            dungeonList[dungeon.name] = dungeon.name
+        end
     end
     dungeonFilter:SetList(dungeonList)
     dungeonFilter:SetValue("")
@@ -2205,18 +2207,20 @@ function Grouper:ShowEditGroupDialog(group)
         if typeDropdown:GetValue() ~= "dungeon" then return end
         if not DUNGEONS then return end
         for _, dungeon in ipairs(DUNGEONS) do
-            local checkbox = AceGUI:Create("CheckBox")
-            checkbox:SetLabel(dungeon.name)
-            checkbox:SetWidth(300)
-            checkbox:SetValue(selectedDungeons[dungeon.name] ~= nil)
-            checkbox:SetCallback("OnValueChanged", function(widget, event, value)
-                if value then
-                    selectedDungeons[dungeon.name] = dungeon
-                else
-                    selectedDungeons[dungeon.name] = nil
-                end
-            end)
-            editDungeonScroll:AddChild(checkbox)
+            if dungeon.id and dungeon.id >= 1 and dungeon.id <= 26 then
+                local checkbox = AceGUI:Create("CheckBox")
+                checkbox:SetLabel(dungeon.name)
+                checkbox:SetWidth(300)
+                checkbox:SetValue(selectedDungeons[dungeon.name] ~= nil)
+                checkbox:SetCallback("OnValueChanged", function(widget, event, value)
+                    if value then
+                        selectedDungeons[dungeon.name] = dungeon
+                    else
+                        selectedDungeons[dungeon.name] = nil
+                    end
+                end)
+                editDungeonScroll:AddChild(checkbox)
+            end
         end
     end
     typeDropdown:SetCallback("OnValueChanged", function()
