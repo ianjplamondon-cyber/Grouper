@@ -499,6 +499,37 @@ function SlashCmdList.GROUPERCL(msg)
     end
 end
 
+Grouper:RegisterChatCommand("groupercgm", function()
+    local groups = Grouper.groups
+    local count = 0
+    for groupId, group in pairs(groups) do
+        Grouper:Print(string.format("Group ID: %s | Title: %s", groupId, group.title or ""))
+        if group.members and #group.members > 0 then
+            for i, member in ipairs(group.members) do
+                if type(member) == "table" then
+                    Grouper:Print(string.format("  [%d] Name: %s | Class: %s | Race: %s | Level: %s | Role: %s | Leader: %s",
+                        i,
+                        member.name or "?",
+                        member.class or "?",
+                        member.race or "?",
+                        tostring(member.level or "?"),
+                        member.role or "?",
+                        tostring(member.leader and "yes" or "no")
+                    ))
+                else
+                    Grouper:Print(string.format("  [%d] %s", i, tostring(member)))
+                end
+            end
+        else
+            Grouper:Print("  No members in this group.")
+        end
+        count = count + 1
+    end
+    if count == 0 then
+        Grouper:Print("No groups cached.")
+    end
+end)
+
 -- Register slash command to show current player's cached data (place at end of file)
 Grouper:RegisterChatCommand("groupercp", function()
     Grouper:Print("==== Grouper Debug Cache Print ====")

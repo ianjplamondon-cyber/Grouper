@@ -46,14 +46,16 @@ function Grouper:LeaderRemoveMemberFromCache(leftName)
 
     -- Update group member count only
     for groupId, group in pairs(self.groups) do
-    if Grouper.NormalizeFullPlayerName(group.leader) == Grouper.NormalizeFullPlayerName(Grouper.GetFullPlayerName(UnitName("player"))) and group.members then
+        if Grouper.NormalizeFullPlayerName(group.leader) == Grouper.NormalizeFullPlayerName(Grouper.GetFullPlayerName(UnitName("player"))) and group.members then
             -- If disband event, set to 1 (just leader)
             if leftName == "DISBAND" then
-                group.members = { group.leader }
                 -- Remove all non-leader members from cache
                 local leaderName = Grouper.GetFullPlayerName(UnitName("player"))
+                local normLeaderName = Grouper.NormalizeFullPlayerName(leaderName)
                 for cacheName, info in pairs(self.players) do
-                    local isLeader = (cacheName == leaderName or (info.fullName and info.fullName == leaderName))
+                    local normCacheName = Grouper.NormalizeFullPlayerName(cacheName)
+                    local normInfoFullName = info.fullName and Grouper.NormalizeFullPlayerName(info.fullName) or nil
+                    local isLeader = (normCacheName == normLeaderName or (normInfoFullName and normInfoFullName == normLeaderName))
                     if not isLeader then
                         self.players[cacheName] = nil
                         if self.db and self.db.profile and self.db.profile.debug and self.db.profile.debug.enabled then
@@ -61,11 +63,58 @@ function Grouper:LeaderRemoveMemberFromCache(leftName)
                         end
                     end
                 end
+                -- Rebuild group.members as a table with only the leader's full info
+                local leaderInfo = self.players[normLeaderName]
+                group.members = {}
+                if leaderInfo then
+                    table.insert(group.members, {
+                        name = leaderInfo.fullName or leaderName,
+                        class = leaderInfo.class or "?",
+                        race = leaderInfo.race or "?",
+                        level = leaderInfo.level or "?",
+                        role = leaderInfo.role or "?",
+                        leader = true
+                    })
+                else
+                    table.insert(group.members, {
+                        name = leaderName,
+                        class = "?",
+                        race = "?",
+                        level = "?",
+                        role = "?",
+                        leader = true
+                    })
+                end
             else
-                -- Otherwise, decrement by 1 (minimum 1)
-                local newCount = math.max(1, #group.members - 1)
-                while #group.members > newCount do
-                    table.remove(group.members)
+                -- Remove the departed member from self.players and group.members by groupId and member fullName
+                local normLeftName = Grouper.NormalizeFullPlayerName(leftName)
+                -- Remove from self.players (already handled above, but safe to repeat)
+                for cacheName, info in pairs(self.players) do
+                    local normCacheName = Grouper.NormalizeFullPlayerName(cacheName)
+                    local normInfoFullName = info.fullName and Grouper.NormalizeFullPlayerName(info.fullName) or nil
+                    if normCacheName == normLeftName or (normInfoFullName and normInfoFullName == normLeftName) then
+                        self.players[cacheName] = nil
+                        if self.db and self.db.profile and self.db.profile.debug and self.db.profile.debug.enabled then
+                            self:Print("DEBUG: [LeaderRemoveMemberFromCache] Explicitly removed " .. cacheName .. " from cache after member left.")
+                        end
+                    end
+                end
+                -- Remove from group.members by fullName for this groupId only
+                if group.members then
+                    local i = 1
+                    while i <= #group.members do
+                        local m = group.members[i]
+                        local mFullName = m.fullName or m.name or m
+                        local normMFullName = Grouper.NormalizeFullPlayerName(mFullName)
+                        if normMFullName == normLeftName then
+                            table.remove(group.members, i)
+                            if self.db and self.db.profile and self.db.profile.debug and self.db.profile.debug.enabled then
+                                self:Print("DEBUG: [LeaderRemoveMemberFromCache] Explicitly removed " .. tostring(mFullName) .. " from group.members for groupId " .. tostring(groupId) .. ".")
+                            end
+                        else
+                            i = i + 1
+                        end
+                    end
                 end
             end
             if self.db and self.db.profile and self.db.profile.debug and self.db.profile.debug.enabled then
