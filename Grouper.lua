@@ -1007,7 +1007,7 @@ function Grouper:GetFilteredGroups()
         -- Faction filter: Only show groups with leader of same faction
         if include and playerFaction and playerFaction ~= "Neutral" then
             local normLeader = group.leader and Grouper.NormalizeFullPlayerName(group.leader)
-            local leaderInfo = self.players and normLeader and self.players[normLeader]
+            local leaderInfo = self.players and normLeader and self.players[normLeader] or self.players and self.players[group.leader]
             local leaderRace = leaderInfo and leaderInfo.race
             local leaderFaction = nil
             if leaderRace then
