@@ -1859,9 +1859,30 @@ function Grouper:CreateManageTab(container)
     container:AddChild(scrollFrame)
         
     local myGroups = {}
+    local localPlayer = Grouper.GetFullPlayerName(UnitName("player"))
+    local normLocalPlayer = Grouper.NormalizeFullPlayerName(localPlayer)
     for _, group in pairs(self.groups) do
-        if group.leader == Grouper.GetFullPlayerName(UnitName("player")) then
-            table.insert(myGroups, group)
+        if group.members and type(group.members) == "table" then
+            for _, member in ipairs(group.members) do
+                local normMember = Grouper.NormalizeFullPlayerName(member.name)
+                if self.db and self.db.profile and self.db.profile.debug and self.db.profile.debug.enabled then
+                    self:Print("DEBUG: [CreateManageTab] Comparing member '" .. tostring(normMember) .. "' to local '" .. tostring(normLocalPlayer) .. "' for group " .. tostring(group.id))
+                end
+                if Grouper.NormalizeFullPlayerName(member.name) == normLocalPlayer then
+                    if self.db and self.db.profile and self.db.profile.debug and self.db.profile.debug.enabled then
+                        self:Print("DEBUG: [CreateManageTab] Matched! Adding group " .. tostring(group.id))
+                    end
+                    table.insert(myGroups, group)
+                    break
+                end
+            end
+        end
+    end
+
+    if self.db and self.db.profile and self.db.profile.debug and self.db.profile.debug.enabled then
+        self:Print("DEBUG: [CreateManageTab] myGroups count after filtering: " .. tostring(#myGroups))
+        for i, group in ipairs(myGroups) do
+            self:Print("DEBUG: [CreateManageTab] myGroups[" .. i .. "]: " .. tostring(group.id) .. " - " .. tostring(group.title))
         end
     end
     
@@ -1877,11 +1898,9 @@ function Grouper:CreateManageTab(container)
         end
     end
     
-    self.groupsScrollFrame = scrollFrame
     if self.db and self.db.profile and self.db.profile.debug and self.db.profile.debug.enabled then
-        self:Print("DEBUG: [CreateManageTab] groupsScrollFrame set: " .. tostring(self.groupsScrollFrame) .. "\n" .. debugstack(2, 10, 10))
+        self:Print("DEBUG: [CreateManageTab] (no groupsScrollFrame assignment, no RefreshGroupList call)")
     end
-    self:RefreshGroupList("manage")
 
 end
 
