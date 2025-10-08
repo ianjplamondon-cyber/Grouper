@@ -2028,7 +2028,9 @@ function Grouper:CreateGroupManageFrame(group, tabType)
             syncButton:SetText("Sync")
             syncButton:SetWidth(100)
             syncButton:SetCallback("OnClick", function()
-                self:Print("DEBUG: Sync button clicked! Broadcasting group update...")
+                if self.db and self.db.profile and self.db.profile.debug and self.db.profile.debug.enabled then
+                    self:Print("DEBUG: Sync button clicked! Broadcasting group update...")
+                end
                 Grouper:SendGroupUpdateViaChannel(group)
             end)
             buttonGroup:AddChild(syncButton)

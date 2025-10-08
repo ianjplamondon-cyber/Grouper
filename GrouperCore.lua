@@ -26,6 +26,28 @@ AceComm:RegisterComm("GRPR_AUTOJOIN", function(...) Grouper:OnCommReceived(...) 
 AceComm:RegisterComm("GRPR_TEST", function(...) Grouper:OnCommReceived(...) end)
 
 function Grouper:OnEnable()
+    -- Filter Grouper channel messages from General tab only
+    local grouperChannelName = "Grouper"
+    local function Grouper_GeneralChatFilter(self, event, msg, author, ...)
+        local _, chanName = ...
+        if self == DEFAULT_CHAT_FRAME and chanName and chanName:lower() == grouperChannelName:lower() then
+            return true -- Block message in General tab
+        end
+        return false
+    end
+    ChatFrame_AddMessageEventFilter("CHAT_MSG_CHANNEL", Grouper_GeneralChatFilter)
+
+    -- Remove Grouper channel from General tab on login and channel changes
+    local function RemoveGrouperFromGeneral()
+        ChatFrame_RemoveChannel(DEFAULT_CHAT_FRAME, grouperChannelName)
+    end
+    RemoveGrouperFromGeneral()
+    local f = CreateFrame("Frame")
+    f:RegisterEvent("CHANNEL_UI_UPDATE")
+    f:RegisterEvent("PLAYER_ENTERING_WORLD")
+    f:SetScript("OnEvent", function(self, event)
+        C_Timer.After(1, RemoveGrouperFromGeneral)
+    end)
     -- Always update playerInfo cache at startup
     self:UpdatePlayerInfo()
     -- Register events
