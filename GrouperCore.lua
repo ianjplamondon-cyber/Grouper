@@ -351,9 +351,8 @@ function Grouper:OnInitialize()
     self:RegisterChatCommand("grouper", "SlashCommand")
 
     -- Initialize minimap icon using LibDataBroker-1.1:NewDataObject for best LDB/Titan compatibility
-
     local LDB = LibStub("LibDataBroker-1.1")
-    self.LDBDataObject = LDB:NewDataObject("Grouper", {
+    Grouper.LDBDataObject = LDB:NewDataObject("Grouper", {
         type = "launcher",
         text = "Grouper",
         icon = "Interface\\AddOns\\Grouper\\Textures\\GrouperIcon.tga",
@@ -391,19 +390,28 @@ function Grouper:OnInitialize()
             tooltip:AddLine("Right-click: Options", 1, 1, 1)
         end,
     })
-    LibDBIcon:Register("Grouper", self.LDBDataObject, self.db.profile.minimap)
+    LibDBIcon:Register("Grouper", Grouper.LDBDataObject, self.db.profile.minimap)
 
     function Grouper:UpdateLDBGroupCount()
-        if not self.LDBDataObject then return end
+        if not Grouper.LDBDataObject then return end
         local available = 0
-        if self.groups then
-            for _, group in pairs(self.groups) do
-                if group.currentSize and group.maxSize and group.currentSize < group.maxSize then
-                    available = available + 1
+        if Grouper.GetAvailableGroupCount then
+            available = Grouper:GetAvailableGroupCount()
+        end
+        -- Force update: set to empty string first to trigger LDB refresh in all displays
+        Grouper.LDBDataObject.text = ""
+        Grouper.LDBDataObject.text = string.format("Grouper: %d", available)
+        if self.db and self.db.profile and self.db.profile.debug and self.db.profile.debug.enabled then
+            self:Print("DEBUG: [UpdateLDBGroupCount] Set LDB text to: " .. tostring(Grouper.LDBDataObject.text))
+            self:Print("DEBUG: [UpdateLDBGroupCount] LDBDataObject reference: " .. tostring(Grouper.LDBDataObject))
+            for k, v in pairs(Grouper.LDBDataObject) do
+                if type(v) == "function" then
+                    self:Print("  " .. tostring(k) .. " = <function>")
+                else
+                    self:Print("  " .. tostring(k) .. " = " .. tostring(v))
                 end
             end
         end
-        self.LDBDataObject.text = string.format("Grouper: %d", available)
     end
 
     -- Initial update

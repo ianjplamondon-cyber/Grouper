@@ -772,12 +772,16 @@ end
 function Grouper:RemoveGroup(groupId)
     local group = self.groups[groupId]
     if not group or group.leader ~= Grouper.GetFullPlayerName(UnitName("player")) then
-        self:Print("DEBUG: [RemoveGroup] Not found or not leader for groupId " .. tostring(groupId) .. ". group.leader=" .. tostring(group and group.leader) .. ", player=" .. Grouper.GetFullPlayerName(UnitName("player")))
+        if self.db and self.db.profile and self.db.profile.debug and self.db.profile.debug.enabled then
+            self:Print("DEBUG: [RemoveGroup] Not found or not leader for groupId " .. tostring(groupId) .. ". group.leader=" .. tostring(group and group.leader) .. ", player=" .. Grouper.GetFullPlayerName(UnitName("player")))
+        end
         return false
     end
 
     self.groups[groupId] = nil
-    self:Print("DEBUG: [RemoveGroup] Removed groupId from self.groups: " .. tostring(groupId))
+    if self.db and self.db.profile and self.db.profile.debug and self.db.profile.debug.enabled then
+        self:Print("DEBUG: [RemoveGroup] Removed groupId from self.groups: " .. tostring(groupId))
+    end
     self:SendComm("GROUP_REMOVE", {id = groupId})
 
     -- Also update self.players: clear groupId and set leader=false for local player
@@ -791,14 +795,18 @@ function Grouper:RemoveGroup(groupId)
         end
     end
 
-    self:Print(string.format("Removed group: %s", group.title))
-    -- Print all group keys left in cache
-    local count = 0
-    for k, v in pairs(self.groups) do
-        self:Print("DEBUG: [RemoveGroup] Remaining group in cache: " .. tostring(k))
-        count = count + 1
+    if self.db and self.db.profile and self.db.profile.debug and self.db.profile.debug.enabled then
+        self:Print(string.format("Removed group: %s", group.title))
     end
-    self:Print("DEBUG: [RemoveGroup] Total groups left in cache: " .. count)
+    -- Print all group keys left in cache (debug only)
+    if self.db and self.db.profile and self.db.profile.debug and self.db.profile.debug.enabled then
+        local count = 0
+        for k, v in pairs(self.groups) do
+            self:Print("DEBUG: [RemoveGroup] Remaining group in cache: " .. tostring(k))
+            count = count + 1
+        end
+        self:Print("DEBUG: [RemoveGroup] Total groups left in cache: " .. count)
+    end
     if Grouper.UpdateLDBGroupCount then Grouper:UpdateLDBGroupCount() end
     return true
 end
@@ -925,7 +933,8 @@ function Grouper:HandleGroupUpdate(groupData, sender)
                 end
                 self.players[normFullName].level = m.level or "?"
                 self.players[normFullName].role = m.role or m.myRole or "?"
-                -- Set leader field in cache for the leader, false for others
+                -- Always set groupId and leader fields for every member
+                self.players[normFullName].groupId = groupData.id
                 if normLeader and normFullName == normLeader then
                     self.players[normFullName].leader = true
                 else

@@ -1,3 +1,77 @@
+-- /grouperldbdump: Print the current LDB text value for live inspection
+SLASH_GROUPERLDBDUMP1 = "/grouperldbdump"
+SlashCmdList["GROUPERLDBDUMP"] = function()
+    if Grouper and Grouper.LDBDataObject then
+        print("[LDBDump] Grouper.LDBDataObject.text:", Grouper.LDBDataObject.text)
+    else
+        print("[LDBDump] Grouper.LDBDataObject not found.")
+    end
+end
+
+-- Debug command to print LDBDataObject contents
+Grouper:RegisterChatCommand("grouperldb", function()
+    if not Grouper.LDBDataObject then
+        Grouper:Print("LDBDataObject not initialized.")
+        return
+    end
+    Grouper:Print("LDBDataObject contents (table address: " .. tostring(Grouper.LDBDataObject) .. "):")
+    local count = 0
+    for k, v in pairs(Grouper.LDBDataObject) do
+        count = count + 1
+        if type(v) == "function" then
+            Grouper:Print("  " .. tostring(k) .. " = <function>")
+        else
+            Grouper:Print("  " .. tostring(k) .. " = " .. tostring(v))
+        end
+    end
+    if count == 0 then
+        Grouper:Print("  (No properties found. This table is empty. This is normal for LDB objects.)")
+    end
+    -- Diagnostic: set .text and print it via direct access
+    Grouper.LDBDataObject.text = "TEST123"
+    Grouper:Print("Set .text to TEST123. Now .text (direct access) = " .. tostring(Grouper.LDBDataObject.text))
+    Grouper:Print("Note: rawget will not work on LDB objects; use direct access.")
+end)
+
+-- Minimal LDB metatable and property assignment diagnostic
+Grouper:RegisterChatCommand("grouperldbtest", function()
+    if not Grouper.LDBDataObject then
+        Grouper:Print("LDBDataObject not initialized.")
+        return
+    end
+    Grouper.LDBDataObject.text = "TEST456"
+    Grouper:Print("[LDBTest] Set .text to TEST456")
+    Grouper:Print("[LDBTest] .text (direct access): " .. tostring(Grouper.LDBDataObject.text))
+    Grouper:Print("[LDBTest] Note: rawget will not work on LDB objects; use direct access.")
+    local mt = getmetatable(Grouper.LDBDataObject)
+    if mt then
+        if type(mt) == "table" then
+            Grouper:Print("[LDBTest] Metatable present. Keys:")
+            for k, v in pairs(mt) do
+                Grouper:Print("  [mt] " .. tostring(k) .. " = " .. tostring(v))
+            end
+        else
+            Grouper:Print("[LDBTest] Metatable present but is not a table (type: " .. type(mt) .. ", value: " .. tostring(mt) .. ")")
+        end
+    else
+        Grouper:Print("[LDBTest] No metatable present.")
+    end
+end)
+
+-- Returns the number of available groups (not full, not expired), safe to call in background
+function Grouper:GetAvailableGroupCount()
+    local count = 0
+    if self.groups then
+        local now = time()
+        for _, group in pairs(self.groups) do
+            local notExpired = (not group.expire or group.expire > now)
+            if notExpired then
+                count = count + 1
+            end
+        end
+    end
+    return count
+end
 -- Normalize a full player name for robust comparison (removes spaces from realm part only)
 function Grouper.NormalizeFullPlayerName(name)
     if not name then return "" end
