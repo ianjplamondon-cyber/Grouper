@@ -1214,14 +1214,29 @@ function Grouper:CreateMainWindow()
         frame:SetScript("OnSizeChanged", function()
             self:SaveWindowPosition()
         end)
-        -- Enable keyboard input for ESC key
+        -- Allow game keybinds to work while window is open, but capture ESC to only close Grouper
         if frame.EnableKeyboard then frame:EnableKeyboard(true) end
-        frame:SetPropagateKeyboardInput(false)
-        frame:SetScript("OnKeyDown", function(_, key)
-            if key == "ESCAPE" then
-                self.mainFrame:Hide()
-            end
-        end)
+        if frame.SetPropagateKeyboardInput then
+            frame:SetPropagateKeyboardInput(true)
+        end
+        if frame.SetScript then
+            frame:SetScript("OnKeyDown", function(_, key)
+                if key == "ESCAPE" then
+                    -- Temporarily disable propagation to prevent game menu
+                    if frame.SetPropagateKeyboardInput then
+                        frame:SetPropagateKeyboardInput(false)
+                    end
+                    self.mainFrame:Hide()
+                    -- Restore propagation for next open
+                    C_Timer.After(0, function()
+                        if frame.SetPropagateKeyboardInput then
+                            frame:SetPropagateKeyboardInput(true)
+                        end
+                    end)
+                    return true
+                end
+            end)
+        end
     end
     if frame then
         frame:SetMovable(true)
