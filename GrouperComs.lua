@@ -48,8 +48,8 @@ function Grouper:CheckInitialChannelStatus()
     if channelIndex > 0 then
         self.channelJoined = true
         self.grouperChannelNumber = channelIndex  -- Initialize cache on startup
-        self:Print("Connected to Grouper channel!")
-        if self.db.profile.debug.enabled then
+        if self.db and self.db.profile and self.db.profile.debug and self.db.profile.debug.enabled then
+            self:Print("Connected to Grouper channel!")
             self:Print(string.format("DEBUG: Initialized channel cache to %d on startup", channelIndex))
         end
     else
@@ -95,8 +95,8 @@ function Grouper:CheckChannelJoinResult()
     if channelIndex > 0 then
         self.channelJoined = true
         self.grouperChannelNumber = channelIndex  -- Cache the channel number after joining
-        self:Print("Successfully connected to Grouper channel!")
-        if self.db.profile.debug.enabled then
+        if self.db and self.db.profile and self.db.profile.debug and self.db.profile.debug.enabled then
+            self:Print("Successfully connected to Grouper channel!")
             self:Print(string.format("DEBUG: Cached channel number %d after joining", channelIndex))
         end
     else
@@ -118,9 +118,8 @@ function Grouper:CheckChannelStatus()
         local success, channelIndex = pcall(GetChannelName, ADDON_CHANNEL)
         if success and channelIndex > 0 then
             self.channelJoined = true
-            self:Print("Successfully connected to Grouper channel!")
-            -- Request current group data from other users
-            if self.db.profile.debug.enabled then
+            if self.db and self.db.profile and self.db.profile.debug and self.db.profile.debug.enabled then
+                self:Print("Successfully connected to Grouper channel!")
                 self:Print("DEBUG: Requesting group data from other players")
             end
             self:SendComm("REQUEST_DATA", {type = "request", timestamp = time()})

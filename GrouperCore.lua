@@ -351,8 +351,9 @@ function Grouper:OnInitialize()
     self:RegisterChatCommand("grouper", "SlashCommand")
 
     -- Initialize minimap icon using LibDataBroker-1.1:NewDataObject for best LDB/Titan compatibility
+
     local LDB = LibStub("LibDataBroker-1.1")
-    local dataObj = LDB:NewDataObject("Grouper", {
+    self.LDBDataObject = LDB:NewDataObject("Grouper", {
         type = "launcher",
         text = "Grouper",
         icon = "Interface\\AddOns\\Grouper\\Textures\\GrouperIcon.tga",
@@ -390,7 +391,23 @@ function Grouper:OnInitialize()
             tooltip:AddLine("Right-click: Options", 1, 1, 1)
         end,
     })
-    LibDBIcon:Register("Grouper", dataObj, self.db.profile.minimap)
+    LibDBIcon:Register("Grouper", self.LDBDataObject, self.db.profile.minimap)
+
+    function Grouper:UpdateLDBGroupCount()
+        if not self.LDBDataObject then return end
+        local available = 0
+        if self.groups then
+            for _, group in pairs(self.groups) do
+                if group.currentSize and group.maxSize and group.currentSize < group.maxSize then
+                    available = available + 1
+                end
+            end
+        end
+        self.LDBDataObject.text = string.format("Grouper: %d", available)
+    end
+
+    -- Initial update
+    self:UpdateLDBGroupCount()
 
     -- Create options table
     self:SetupOptions()

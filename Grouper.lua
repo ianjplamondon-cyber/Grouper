@@ -739,6 +739,7 @@ function Grouper:CreateGroup(groupData)
     if self.mainFrame and self.mainFrame:IsShown() then
         self:RefreshGroupList()
     end
+    if Grouper.UpdateLDBGroupCount then Grouper:UpdateLDBGroupCount() end
     return group
 end
 
@@ -763,6 +764,7 @@ function Grouper:UpdateGroup(groupId, updates)
     end
     self:SendComm("GROUP_UPDATE", group)
     
+    if Grouper.UpdateLDBGroupCount then Grouper:UpdateLDBGroupCount() end
     return true
 end
 
@@ -797,11 +799,13 @@ function Grouper:RemoveGroup(groupId)
         count = count + 1
     end
     self:Print("DEBUG: [RemoveGroup] Total groups left in cache: " .. count)
+    if Grouper.UpdateLDBGroupCount then Grouper:UpdateLDBGroupCount() end
     return true
 end
 
 -- Handle incoming group updates
 function Grouper:HandleGroupUpdate(groupData, sender)
+    if Grouper.UpdateLDBGroupCount then Grouper:UpdateLDBGroupCount() end
     -- Table to track printed group ids (persist for session)
     Grouper.printedGroupIds = Grouper.printedGroupIds or {}
     if self.db and self.db.profile and self.db.profile.debug and self.db.profile.debug.enabled then
@@ -1029,6 +1033,7 @@ end
 
 -- Handle incoming group removals
 function Grouper:HandleGroupRemove(data, sender)
+    if Grouper.UpdateLDBGroupCount then Grouper:UpdateLDBGroupCount() end
     local group = self.groups[data.id]
     if group and Grouper.NormalizeFullPlayerName(group.leader) == Grouper.NormalizeFullPlayerName(sender) then
         self.groups[data.id] = nil
@@ -1226,15 +1231,21 @@ function Grouper:CreateMainWindow()
                     if frame.SetPropagateKeyboardInput then
                         frame:SetPropagateKeyboardInput(false)
                     end
+                    -- SAFEGUARD: Always restore propagation before hiding
+                    if frame.SetPropagateKeyboardInput then
+                        frame:SetPropagateKeyboardInput(true)
+                    end
                     self.mainFrame:Hide()
-                    -- Restore propagation for next open
-                    C_Timer.After(0, function()
-                        if frame.SetPropagateKeyboardInput then
-                            frame:SetPropagateKeyboardInput(true)
-                        end
-                    end)
                     return true
                 end
+            end)
+            -- SAFEGUARD: Always restore propagation when frame is hidden or closed
+            local origOnHide = frame:GetScript("OnHide")
+            frame:SetScript("OnHide", function(...)
+                if frame.SetPropagateKeyboardInput then
+                    frame:SetPropagateKeyboardInput(true)
+                end
+                if origOnHide then origOnHide(...) end
             end)
         end
     end
@@ -2057,6 +2068,7 @@ end
 
 -- Refresh the group list in the Browse tab based on current filters
 function Grouper:RefreshGroupList(tabType)
+    if Grouper.UpdateLDBGroupCount then Grouper:UpdateLDBGroupCount() end
     if self.db and self.db.profile and self.db.profile.debug and self.db.profile.debug.enabled then
         self:Print(string.rep("-", 40))
         self:Print("DEBUG: [RefreshGroupList] called")
