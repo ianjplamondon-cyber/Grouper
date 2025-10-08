@@ -718,14 +718,12 @@ function Grouper:CreateGroup(groupData)
     if self.db and self.db.profile and self.db.profile.debug and self.db.profile.debug.enabled then
         self:Print(string.format("DEBUG: [CreateGroup] About to SendComm GROUP_UPDATE for groupId=%s, title=%s", group.id, group.title))
     end
-    --[[
     self:SendComm("GROUP_UPDATE", group)
-    self:Print(string.format("Created group: %s", group.title))
+    -- self:Print(string.format("Created group: %s", group.title))
     -- Immediately refresh the UI so the new group appears
     if self.mainFrame and self.mainFrame:IsShown() then
         self:RefreshGroupList()
     end
-    --]]
     return group
 end
 

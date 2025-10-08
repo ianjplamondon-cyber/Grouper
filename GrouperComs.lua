@@ -462,24 +462,18 @@ function Grouper:SendRequestDataViaChannel(data)
         time()
     )
 
-    -- If debug is off, prefix with DEL (\127) to make it silent in chat
+    -- Always send REQUEST_DATA in standard protocol format, do not prefix with DEL
     local debugEnabled = self.db and self.db.profile and self.db.profile.debug and self.db.profile.debug.enabled
-    local sendMessage = message
-    if not debugEnabled then
-        sendMessage = string.char(127) .. message
-    end
-
     if debugEnabled then
         self:Print(string.format("DEBUG: ⚡ Sending REQUEST_DATA via direct channel %d: %s", channelIndex, message))
         self:Print("DEBUG: [SendChatMessage] About to call SendChatMessage for REQUEST_DATA")
         self:Print(string.format("Args: message='%s', type='CHANNEL', language=nil, channelIndex=%s", message, tostring(channelIndex)))
         self:Print("DEBUG: [SendChatMessage] Stack trace:")
         self:Print(debugstack(2, 10, 10))
-        SendChatMessage(message, "CHANNEL", nil, channelIndex)
+    end
+    SendChatMessage(message, "CHANNEL", nil, channelIndex)
+    if debugEnabled then
         self:Print("DEBUG: ✓ REQUEST_DATA sent via direct channel")
-    else
-        -- Send as silent protocol message
-        SendChatMessage(sendMessage, "CHANNEL", nil, channelIndex)
     end
     return true
 end
