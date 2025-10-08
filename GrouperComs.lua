@@ -663,52 +663,53 @@ function Grouper:HandleDirectRequestData(message, sender)
     local requester = parts[2]
     local timestamp = tonumber(parts[3]) or time()
     
-    if self.db.profile.debug.enabled then
-        self:Print(string.format("DEBUG: Processing REQUEST_DATA from %s, sending our groups via WHISPER", sender))
-        self:Print("DEBUG: self.groups table dump:")
-        if self.groups then
-            local foundLeader = false
-            for groupId, group in pairs(self.groups) do
+    -- Always send GROUP_UPDATE whisper response immediately, regardless of debug setting
+    if self.groups then
+        local foundLeader = false
+        for groupId, group in pairs(self.groups) do
+            local playerName = UnitName("player")
+            local playerServer = GetRealmName()
+            if playerServer then
+                playerServer = playerServer:gsub("%s+", "")
+            end
+            local fullPlayerName = playerName .. "-" .. playerServer
+            local normGroupLeader = Grouper.NormalizeFullPlayerName(group.leader)
+            local normPlayerName = Grouper.NormalizeFullPlayerName(playerName)
+            local normFullPlayerName = Grouper.NormalizeFullPlayerName(fullPlayerName)
+            if self.db.profile.debug.enabled then
                 self:Print(string.format("DEBUG: groupId=%s, leader=%s, title=%s", tostring(groupId), tostring(group.leader), tostring(group.title)))
-                local playerName = UnitName("player")
-                local playerServer = GetRealmName()
-                if playerServer then
-                    playerServer = playerServer:gsub("%s+", "")
-                end
-                local fullPlayerName = playerName .. "-" .. playerServer
-                local normGroupLeader = Grouper.NormalizeFullPlayerName(group.leader)
-                local normPlayerName = Grouper.NormalizeFullPlayerName(playerName)
-                local normFullPlayerName = Grouper.NormalizeFullPlayerName(fullPlayerName)
                 self:Print(string.format("DEBUG: Leader compare: group.leader='%s', playerName='%s', fullPlayerName='%s' (normalized: group.leader='%s', playerName='%s', fullPlayerName='%s')", tostring(group.leader), tostring(playerName), tostring(fullPlayerName), normGroupLeader, normPlayerName, normFullPlayerName))
-                if normGroupLeader == normPlayerName or normGroupLeader == normFullPlayerName then
+            end
+            if normGroupLeader == normPlayerName or normGroupLeader == normFullPlayerName then
+                if self.db.profile.debug.enabled then
                     self:Print("DEBUG: Entered leader match block for WHISPER response.")
-                    if self.db.profile.debug.enabled then
-                        self:Print(string.format("DEBUG: Sending our group %s (%s) via WHISPER to %s using encoded format", groupId, group.title, sender))
-                        self:Print(string.format("DEBUG: ⚡ Sending GROUP_UPDATE via addon whisper to %s using AceComm format", sender))
-                    end
-                    local message = {
-                        type = "GROUP_UPDATE",
-                        sender = UnitName("player"),
-                        timestamp = time(),
-                        version = ADDON_VERSION,
-                        data = group
-                    }
-                    local serialized = self:Serialize(message)
-                    if self.db.profile.debug.enabled then
-                        self:Print("DEBUG: Serialized whisper GROUP_UPDATE message:")
-                        self:Print(serialized)
-                    end
-                    local success = self:SendCommMessage("GRPR_GRP_UPD", serialized, "WHISPER", sender, "NORMAL")
-                    if self.db.profile.debug.enabled then
-                        self:Print(string.format("DEBUG: AceComm addon whisper result: %s", success and "SUCCESS" or "FAILED"))
-                    end
-                    foundLeader = true
+                    self:Print(string.format("DEBUG: Sending our group %s (%s) via WHISPER to %s using encoded format", groupId, group.title, sender))
+                    self:Print(string.format("DEBUG: ⚡ Sending GROUP_UPDATE via addon whisper to %s using AceComm format", sender))
                 end
+                local message = {
+                    type = "GROUP_UPDATE",
+                    sender = UnitName("player"),
+                    timestamp = time(),
+                    version = ADDON_VERSION,
+                    data = group
+                }
+                local serialized = self:Serialize(message)
+                if self.db.profile.debug.enabled then
+                    self:Print("DEBUG: Serialized whisper GROUP_UPDATE message:")
+                    self:Print(serialized)
+                end
+                local success = self:SendCommMessage("GRPR_GRP_UPD", serialized, "WHISPER", sender, "NORMAL")
+                if self.db.profile.debug.enabled then
+                    self:Print(string.format("DEBUG: AceComm addon whisper result: %s", success and "SUCCESS" or "FAILED"))
+                end
+                foundLeader = true
             end
-            if not foundLeader then
-                self:Print("DEBUG: No group found with current player as leader.")
-            end
-        else
+        end
+        if self.db.profile.debug.enabled and not foundLeader then
+            self:Print("DEBUG: No group found with current player as leader.")
+        end
+    else
+        if self.db.profile.debug.enabled then
             self:Print("DEBUG: self.groups is nil.")
         end
     end
