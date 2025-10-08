@@ -1219,36 +1219,34 @@ function Grouper:CreateMainWindow()
         frame:SetScript("OnSizeChanged", function()
             self:SaveWindowPosition()
         end)
-        -- Allow game keybinds to work while window is open, but capture ESC to only close Grouper
-        if frame.EnableKeyboard then frame:EnableKeyboard(true) end
-        if frame.SetPropagateKeyboardInput then
-            frame:SetPropagateKeyboardInput(true)
-        end
-        if frame.SetScript then
-            frame:SetScript("OnKeyDown", function(_, key)
-                if key == "ESCAPE" then
-                    -- Temporarily disable propagation to prevent game menu
-                    if frame.SetPropagateKeyboardInput then
-                        frame:SetPropagateKeyboardInput(false)
-                    end
-                    -- SAFEGUARD: Always restore propagation before hiding
-                    if frame.SetPropagateKeyboardInput then
-                        frame:SetPropagateKeyboardInput(true)
-                    end
-                    self.mainFrame:Hide()
-                    return true
-                end
-            end)
-            -- SAFEGUARD: Always restore propagation when frame is hidden or closed
-            local origOnHide = frame:GetScript("OnHide")
-            frame:SetScript("OnHide", function(...)
-                if frame.SetPropagateKeyboardInput then
-                    frame:SetPropagateKeyboardInput(true)
-                end
-                if origOnHide then origOnHide(...) end
-            end)
-        end
     end
+
+    -- Create a hidden child frame to capture only ESC
+    if not self.escCatcher then
+        local escCatcher = CreateFrame("Frame", nil, frame)
+        escCatcher:SetAllPoints(frame)
+        escCatcher:EnableKeyboard(true)
+        escCatcher:SetPropagateKeyboardInput(false)
+        escCatcher:Hide()
+        escCatcher:SetScript("OnKeyDown", function(_, key)
+            if key == "ESCAPE" then
+                self.mainFrame:Hide()
+                escCatcher:Hide()
+                return true
+            end
+        end)
+        self.escCatcher = escCatcher
+    end
+    -- Show and focus the escCatcher when Grouper is open
+    self.escCatcher:Show()
+    self.escCatcher:SetFrameStrata("FULLSCREEN_DIALOG")
+    self.escCatcher:SetFrameLevel(frame:GetFrameLevel() + 10)
+    -- Hide the escCatcher when Grouper closes
+    local origOnHide = frame:GetScript("OnHide")
+    frame:SetScript("OnHide", function(...)
+        if self.escCatcher then self.escCatcher:Hide() end
+        if origOnHide then origOnHide(...) end
+    end)
     if frame then
         frame:SetMovable(true)
         
