@@ -350,8 +350,9 @@ function Grouper:OnInitialize()
     -- Register chat commands
     self:RegisterChatCommand("grouper", "SlashCommand")
 
-    -- Initialize minimap icon
-    local dataObj = {
+    -- Initialize minimap icon using LibDataBroker-1.1:NewDataObject for best LDB/Titan compatibility
+    local LDB = LibStub("LibDataBroker-1.1")
+    local dataObj = LDB:NewDataObject("Grouper", {
         type = "launcher",
         text = "Grouper",
         icon = "Interface\\AddOns\\Grouper\\Textures\\GrouperIcon.tga",
@@ -388,8 +389,8 @@ function Grouper:OnInitialize()
             tooltip:AddLine("Left-click: Open Grouper window", 1, 1, 1)
             tooltip:AddLine("Right-click: Options", 1, 1, 1)
         end,
-    }
-    LibDBIcon:Register(ADDON_NAME, dataObj, self.db.profile.minimap)
+    })
+    LibDBIcon:Register("Grouper", dataObj, self.db.profile.minimap)
 
     -- Create options table
     self:SetupOptions()
