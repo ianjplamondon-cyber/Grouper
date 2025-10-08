@@ -329,6 +329,44 @@ function Grouper:OnInitialize()
     self:RegisterChatCommand("grouper", "SlashCommand")
 
     -- Initialize minimap icon
+    local dataObj = {
+        type = "launcher",
+        text = "Grouper",
+        icon = "Interface\\AddOns\\Grouper\\Textures\\GrouperIcon.tga",
+        OnClick = function(_, button)
+            if button == "LeftButton" then
+                Grouper:ToggleMainWindow()
+            elseif button == "RightButton" then
+                -- Toggle the Blizzard AddOns options panel for Grouper
+                local opened = false
+                if InterfaceOptionsFrame and InterfaceOptionsFrame_OpenToCategory then
+                    if InterfaceOptionsFrame:IsShown() then
+                        HideUIPanel(InterfaceOptionsFrame)
+                        opened = true
+                    else
+                        InterfaceOptionsFrame_OpenToCategory(ADDON_NAME)
+                        opened = true
+                    end
+                elseif Settings and Settings.OpenToCategory then
+                    if SettingsPanel and SettingsPanel:IsVisible() then
+                        SettingsPanel:Hide()
+                        opened = true
+                    else
+                        Settings.OpenToCategory(ADDON_NAME)
+                        opened = true
+                    end
+                end
+                if not opened then
+                    Grouper:Print("Open the options via ESC > Interface > AddOns > Grouper.")
+                end
+            end
+        end,
+        OnTooltipShow = function(tooltip)
+            tooltip:AddLine("Grouper")
+            tooltip:AddLine("Left-click: Open Grouper window", 1, 1, 1)
+            tooltip:AddLine("Right-click: Options", 1, 1, 1)
+        end,
+    }
     LibDBIcon:Register(ADDON_NAME, dataObj, self.db.profile.minimap)
 
     -- Create options table
