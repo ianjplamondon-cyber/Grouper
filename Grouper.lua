@@ -1201,6 +1201,12 @@ function Grouper:CreateMainWindow()
     
     self.mainFrame = AceGUI:Create("Frame")
     self.mainFrame:SetTitle("Grouper")
+    -- Assign a global name to the AceGUI frame for UISpecialFrames
+    local frame = self.mainFrame.frame
+    if frame and not frame:GetName() then
+        _G["GrouperMainFrame"] = frame
+    end
+    tinsert(UISpecialFrames, "GrouperMainFrame")
     -- Check actual channel status
     local channelIndex = GetChannelName(ADDON_CHANNEL)
     local actuallyInChannel = channelIndex > 0
@@ -1213,40 +1219,14 @@ function Grouper:CreateMainWindow()
     self.mainFrame:SetHeight(800) -- Increased from 600 to 800 for more scroll space
     
     -- Add drag functionality to frame borders
-    local frame = self.mainFrame.frame
+    -- frame is already set above
     -- Save window position and size on resize
     if frame and frame.SetScript then
         frame:SetScript("OnSizeChanged", function()
             self:SaveWindowPosition()
         end)
     end
-
-    -- Create a hidden child frame to capture only ESC
-    if not self.escCatcher then
-        local escCatcher = CreateFrame("Frame", nil, frame)
-        escCatcher:SetAllPoints(frame)
-        escCatcher:EnableKeyboard(true)
-        escCatcher:SetPropagateKeyboardInput(false)
-        escCatcher:Hide()
-        escCatcher:SetScript("OnKeyDown", function(_, key)
-            if key == "ESCAPE" then
-                self.mainFrame:Hide()
-                escCatcher:Hide()
-                return true
-            end
-        end)
-        self.escCatcher = escCatcher
-    end
-    -- Show and focus the escCatcher when Grouper is open
-    self.escCatcher:Show()
-    self.escCatcher:SetFrameStrata("FULLSCREEN_DIALOG")
-    self.escCatcher:SetFrameLevel(frame:GetFrameLevel() + 10)
-    -- Hide the escCatcher when Grouper closes
-    local origOnHide = frame:GetScript("OnHide")
-    frame:SetScript("OnHide", function(...)
-        if self.escCatcher then self.escCatcher:Hide() end
-        if origOnHide then origOnHide(...) end
-    end)
+    -- No custom ESC logic needed; UISpecialFrames handles ESC closing
     if frame then
         frame:SetMovable(true)
         
