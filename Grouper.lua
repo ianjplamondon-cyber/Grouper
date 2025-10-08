@@ -1214,6 +1214,14 @@ function Grouper:CreateMainWindow()
         frame:SetScript("OnSizeChanged", function()
             self:SaveWindowPosition()
         end)
+        -- Enable keyboard input for ESC key
+        if frame.EnableKeyboard then frame:EnableKeyboard(true) end
+        frame:SetPropagateKeyboardInput(false)
+        frame:SetScript("OnKeyDown", function(_, key)
+            if key == "ESCAPE" then
+                self.mainFrame:Hide()
+            end
+        end)
     end
     if frame then
         frame:SetMovable(true)
