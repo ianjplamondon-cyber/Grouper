@@ -124,6 +124,21 @@ function Grouper:LeaderRemoveMemberFromCache(leftName)
     end
 end
 
+-- AceDB defaults: ensure debug.enabled is false by default
+local GrouperDBDefaults = {
+    profile = {
+        debug = { enabled = false },
+        filters = {
+            minLevel = 1,
+            maxLevel = 60,
+        },
+        notifications = {
+            newGroups = true,
+        },
+        -- add other default settings here as needed
+    }
+}
+
 -- Update group members when player joins a group
 function Grouper:HandleJoinedGroup()
     if self.db and self.db.profile and self.db.profile.debug and self.db.profile.debug.enabled then
