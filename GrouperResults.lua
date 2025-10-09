@@ -135,7 +135,8 @@ function Grouper:CreateGroupFrame(group, tabType)
         whisperButton:SetText("Whisper Leader")
         whisperButton:SetWidth(120)
         whisperButton:SetCallback("OnClick", function()
-            local whisperText = "/tell " .. group.leader .. " "
+            local normalizedLeader = Grouper.NormalizeFullPlayerName(group.leader)
+            local whisperText = "/tell " .. normalizedLeader .. " "
             if ChatFrame_OpenChat then
                 ChatFrame_OpenChat(whisperText)
             elseif DEFAULT_CHAT_FRAME and DEFAULT_CHAT_FRAME.editBox then
