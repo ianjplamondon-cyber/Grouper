@@ -22,21 +22,28 @@ function Grouper:CreateGroupFrame(group, tabType)
 
     -- Group info
     local infoLabel = AceGUI:Create("Label")
-    -- Show all selected dungeons (comma-separated), or blank if not a dungeon
-    local dungeonNames = {}
-    if group.dungeons and next(group.dungeons) then
-        for name, _ in pairs(group.dungeons) do
-            table.insert(dungeonNames, name)
+    if group.type == "dungeon" then
+        -- Show dungeons for dungeon groups
+        local dungeonNames = {}
+        if group.dungeons and next(group.dungeons) then
+            for name, _ in pairs(group.dungeons) do
+                table.insert(dungeonNames, name)
+            end
+        elseif group.dungeonId and DUNGEONS then
+            for _, d in ipairs(DUNGEONS) do
+                if d.id == group.dungeonId then table.insert(dungeonNames, d.name) break end
+            end
         end
-    elseif group.dungeonId and DUNGEONS then
-        for _, d in ipairs(DUNGEONS) do
-            if d.id == group.dungeonId then table.insert(dungeonNames, d.name) break end
-        end
+        local dungeonsText = #dungeonNames > 0 and table.concat(dungeonNames, ", ") or "-"
+        infoLabel:SetText(string.format("Type: %s | Dungeons: %s | Level: %d-%d\nMeeting Point: %s",
+            group.type, dungeonsText, group.minLevel, group.maxLevel,
+            group.location ~= "" and group.location or "Not specified"))
+    else
+        -- Hide dungeons column for quest/other groups
+        infoLabel:SetText(string.format("Type: %s | Level: %d-%d\nMeeting Point: %s",
+            group.type, group.minLevel, group.maxLevel,
+            group.location ~= "" and group.location or "Not specified"))
     end
-    local dungeonsText = #dungeonNames > 0 and table.concat(dungeonNames, ", ") or "-"
-    infoLabel:SetText(string.format("Type: %s | Dungeons: %s | Level: %d-%d\nMeeting Point: %s",
-        group.type, dungeonsText, group.minLevel, group.maxLevel,
-        group.location ~= "" and group.location or "Not specified"))
     infoLabel:SetFullWidth(true)
     frame:AddChild(infoLabel)
 

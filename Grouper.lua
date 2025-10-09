@@ -513,6 +513,18 @@ function Grouper:CreateGroup(groupData)
                     self.players[normFullName].lastSeen = time()
                     self.players[normFullName].leader = false -- Always set to false for non-leader
                     self.players[normFullName].groupId = group and group.id or nil -- Track group membership
+                    -- Sync to self.playerInfo if this is the local player
+                    if fullName == Grouper.GetFullPlayerName(UnitName("player")) then
+                        self.playerInfo = self.playerInfo or {}
+                        self.playerInfo.fullName = self.players[normFullName].fullName
+                        self.playerInfo.class = self.players[normFullName].class
+                        self.playerInfo.race = self.players[normFullName].race
+                        self.playerInfo.level = self.players[normFullName].level
+                        self.playerInfo.role = self.players[normFullName].role
+                        self.playerInfo.lastSeen = self.players[normFullName].lastSeen
+                        self.playerInfo.leader = self.players[normFullName].leader
+                        self.playerInfo.groupId = self.players[normFullName].groupId
+                    end
                 end
             end
         end
@@ -667,14 +679,22 @@ function Grouper:RemoveGroup(groupId)
     end
     self:SendComm("GROUP_REMOVE", {id = groupId})
 
-    -- Also update self.players: clear groupId and set leader=false for local player
+    -- Also update self.players: clear groupId, leader, and role for local player
     local localPlayer = Grouper.GetFullPlayerName(UnitName("player"))
     local normLocalPlayer = Grouper.NormalizeFullPlayerName(localPlayer)
-    if self.players and self.players[normLocalPlayer] then
-        self.players[normLocalPlayer].groupId = nil
+    self.players = self.players or {}
+    if self.players[normLocalPlayer] then
+        self.players[normLocalPlayer].groupId = "none"
         self.players[normLocalPlayer].leader = false
         if self.db and self.db.profile and self.db.profile.debug and self.db.profile.debug.enabled then
-            self:Print("DEBUG: [RemoveGroup] Cleared groupId and set leader=false for " .. tostring(localPlayer) .. " in self.players")
+            self:Print("DEBUG: [RemoveGroup] Set groupId='none' and leader=false for " .. tostring(localPlayer) .. " in self.players")
+        end
+    end
+    if self.playerInfo then
+        self.playerInfo.groupId = "none"
+        self.playerInfo.leader = false
+        if self.db and self.db.profile and self.db.profile.debug and self.db.profile.debug.enabled then
+            self:Print("DEBUG: [RemoveGroup] Set groupId='none' and leader=false for self.playerInfo as well")
         end
     end
 
@@ -823,6 +843,18 @@ function Grouper:HandleGroupUpdate(groupData, sender)
                 else
                     self.players[normFullName].leader = false
                 end
+                -- Sync to self.playerInfo if this is the local player
+                if fullName == Grouper.GetFullPlayerName(UnitName("player")) then
+                    self.playerInfo = self.playerInfo or {}
+                    self.playerInfo.fullName = self.players[normFullName].fullName
+                    self.playerInfo.class = self.players[normFullName].class
+                    self.playerInfo.race = self.players[normFullName].race
+                    self.playerInfo.level = self.players[normFullName].level
+                    self.playerInfo.role = self.players[normFullName].role
+                    self.playerInfo.lastSeen = self.players[normFullName].lastSeen
+                    self.playerInfo.leader = self.players[normFullName].leader
+                    self.playerInfo.groupId = self.players[normFullName].groupId
+                end
             end
         end
     end
@@ -844,8 +876,18 @@ function Grouper:HandleGroupUpdate(groupData, sender)
             local normLocalPlayer = Grouper.NormalizeFullPlayerName(localPlayer)
             if self.players[normLocalPlayer] and normLocalPlayer == Grouper.NormalizeFullPlayerName(groupData.leader) then
                 self.players[normLocalPlayer].groupId = groupData.id
+                -- Sync to self.playerInfo
+                self.playerInfo = self.playerInfo or {}
+                self.playerInfo.groupId = self.players[normLocalPlayer].groupId
+                self.playerInfo.leader = self.players[normLocalPlayer].leader
+                self.playerInfo.role = self.players[normLocalPlayer].role
+                self.playerInfo.class = self.players[normLocalPlayer].class
+                self.playerInfo.race = self.players[normLocalPlayer].race
+                self.playerInfo.level = self.players[normLocalPlayer].level
+                self.playerInfo.fullName = self.players[normLocalPlayer].fullName
+                self.playerInfo.lastSeen = self.players[normLocalPlayer].lastSeen
                 if self.db and self.db.profile and self.db.profile.debug and self.db.profile.debug.enabled then
-                    self:Print(string.format("DEBUG: [HandleGroupUpdate] Set groupId=%s for player %s in cache", groupData.id, localPlayer))
+                    self:Print(string.format("DEBUG: [HandleGroupUpdate] Set groupId=%s for player %s in cache and synced to self.playerInfo", groupData.id, localPlayer))
                 end
             end
         end
