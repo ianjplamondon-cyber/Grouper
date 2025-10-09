@@ -203,15 +203,8 @@ function Grouper:SendComm(messageType, data, distribution, target, priority)
     -- Always normalize whisper target (remove spaces from realm, replace colons with dash)
     if distributionType == "WHISPER" and commTarget then
         local before = tostring(commTarget)
-        -- If the target does not include a realm, append the sender's realm
-        if not commTarget:find("-") then
-            local _, senderRealm = UnitName("player")
-            if senderRealm and senderRealm ~= "" then
-                senderRealm = senderRealm:gsub("%s+", "")
-                commTarget = commTarget .. "-" .. senderRealm
-            end
-        end
-        commTarget = Grouper.NormalizeFullPlayerName(commTarget)
+        -- Always use canonical whisper-friendly format
+        commTarget = Grouper.GetFullPlayerName(commTarget)
         if self.db and self.db.profile and self.db.profile.debug and self.db.profile.debug.enabled then
             self:Print(string.format("DEBUG: [SendComm] WHISPER target before='%s', after normalization='%s'", before, tostring(commTarget)))
         end
@@ -1437,21 +1430,20 @@ function Grouper:OnCommReceived(prefix, message, distribution, sender)
         end
     end
     
+    -- Normalize sender for robust internal lookups
+    local normalizedSender = Grouper.GetFullPlayerName(sender)
     -- Ignore messages from ourselves to prevent self-processing
     local playerName = UnitName("player")
     local playerServer = GetRealmName()
-    -- Normalize realm name by removing spaces (WoW chat shows "OldBlanchy" but GetRealmName() returns "Old Blanchy")
     if playerServer then
         playerServer = playerServer:gsub("%s+", "")
     end
     local fullPlayerName = playerName .. "-" .. playerServer
-    
     if self.db.profile.debug.enabled then
-        self:Print(string.format("DEBUG: AceComm Self-check - playerName: '%s', playerServer: '%s', fullPlayerName: '%s', sender: '%s'", 
-            playerName or "nil", playerServer or "nil", fullPlayerName or "nil", sender or "nil"))
+        self:Print(string.format("DEBUG: AceComm Self-check - playerName: '%s', playerServer: '%s', fullPlayerName: '%s', sender: '%s', normalizedSender: '%s'", 
+            playerName or "nil", playerServer or "nil", fullPlayerName or "nil", sender or "nil", normalizedSender or "nil"))
     end
-    
-    if sender == playerName or sender == fullPlayerName then
+    if normalizedSender == fullPlayerName then
         if self.db.profile.debug.enabled then
             self:Print(string.format("DEBUG: Ignoring AceComm message from self (%s)", sender))
         end
@@ -1468,12 +1460,12 @@ function Grouper:OnCommReceived(prefix, message, distribution, sender)
         if self.db.profile.debug.enabled then
             self:Print("DEBUG: Routing GRPR_AUTOJOIN to OnAutoJoinRequest")
         end
-        self:OnAutoJoinRequest(prefix, message, distribution, sender)
+        self:OnAutoJoinRequest(prefix, message, distribution, normalizedSender)
         return
     elseif prefix == "GRPR_GRP_UPD" then
         messageType = "GROUP_UPDATE"
         if self.db.profile.debug.enabled then
-            self:Print(string.format("DEBUG: ✓ RECEIVED GRPR_GRP_UPD from %s, deserializing", sender))
+            self:Print(string.format("DEBUG: ✓ RECEIVED GRPR_GRP_UPD from %s, deserializing", normalizedSender))
         end
         -- Handle normal serialized format like TEST messages
         local pcall_success, deserialize_success, deserializedMessage = pcall(self.Deserialize, self, message)
@@ -1505,7 +1497,7 @@ function Grouper:OnCommReceived(prefix, message, distribution, sender)
             end
             -- Pass the whole deserialized message, not just the data part
             local success2, error2 = pcall(function()
-                self:ProcessReceivedMessage(deserializedMessage.type, deserializedMessage, sender)
+                self:ProcessReceivedMessage(deserializedMessage.type, deserializedMessage, normalizedSender)
             end)
             if not success2 then
                 if self.db.profile.debug.enabled then
@@ -1533,7 +1525,7 @@ function Grouper:OnCommReceived(prefix, message, distribution, sender)
         
         -- Process the successfully deserialized message
         local success2, error2 = pcall(function()
-            self:ProcessReceivedMessage(deserializedMessage.type, deserializedMessage, sender)
+            self:ProcessReceivedMessage(deserializedMessage.type, deserializedMessage, normalizedSender)
         end)
         if not success2 then
             if self.db.profile.debug.enabled then
@@ -1548,15 +1540,15 @@ function Grouper:OnCommReceived(prefix, message, distribution, sender)
     elseif prefix == "GRPR_GROUP" then
         messageType = "GROUP_UPDATE"
         if self.db.profile.debug.enabled then
-            self:Print(string.format("DEBUG: ✓ RECEIVED GRPR_GROUP from %s, calling HandleCompactGroupUpdate", sender))
+            self:Print(string.format("DEBUG: ✓ RECEIVED GRPR_GROUP from %s, calling HandleCompactGroupUpdate", normalizedSender))
         end
         -- Handle compact format directly from AceComm (message already includes GRPR_GROUP# prefix)
-        self:HandleCompactGroupUpdate(message, sender)
+        self:HandleCompactGroupUpdate(message, normalizedSender)
         return
     elseif prefix == "GRPR_GRP_RMV" then
         messageType = "GROUP_REMOVE"
         if self.db.profile.debug.enabled then
-            self:Print(string.format("DEBUG: ✓ RECEIVED GRPR_GRP_RMV from %s, deserializing", sender))
+            self:Print(string.format("DEBUG: ✓ RECEIVED GRPR_GRP_RMV from %s, deserializing", normalizedSender))
         end
         -- Handle serialized GROUP_REMOVE message
         local pcall_success, deserialize_success, deserializedMessage = pcall(self.Deserialize, self, message)
@@ -1565,7 +1557,7 @@ function Grouper:OnCommReceived(prefix, message, distribution, sender)
                 self:Print(string.format("DEBUG: ✓ Successfully deserialized GRPR_GRP_RMV message"))
             end
             local success2, error2 = pcall(function()
-                self:ProcessReceivedMessage(deserializedMessage.type, deserializedMessage, sender)
+                self:ProcessReceivedMessage(deserializedMessage.type, deserializedMessage, normalizedSender)
             end)
             if not success2 then
                 if self.db.profile.debug.enabled then

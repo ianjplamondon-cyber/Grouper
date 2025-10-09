@@ -691,10 +691,12 @@ function Grouper.GetFullPlayerName(name)
     if name:find("-") then
         local base, r = name:match("^(.-)%-(.+)$")
         if base and r then
+            r = r:gsub("%s+", "") -- Remove spaces from realm for whisper format
             return base .. "-" .. r
         end
         return name
     end
+    realm = realm and realm:gsub("%s+", "") or ""
     return name .. "-" .. realm
 end
 

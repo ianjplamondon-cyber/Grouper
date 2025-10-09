@@ -13,6 +13,7 @@ function Grouper:CreateManageTab(container)
     local myGroups = {}
     local localPlayer = Grouper.GetFullPlayerName(UnitName("player"))
     local normLocalPlayer = Grouper.NormalizeFullPlayerName(localPlayer)
+    local myCurrentGroupId = self.playerInfo and self.playerInfo.groupId or nil
     for _, group in pairs(self.groups) do
         if group.members and type(group.members) == "table" then
             for _, member in ipairs(group.members) do
@@ -20,9 +21,9 @@ function Grouper:CreateManageTab(container)
                 if self.db and self.db.profile and self.db.profile.debug and self.db.profile.debug.enabled then
                     self:Print("DEBUG: [CreateManageTab] Comparing member '" .. tostring(normMember) .. "' to local '" .. tostring(normLocalPlayer) .. "' for group " .. tostring(group.id))
                 end
-                if Grouper.NormalizeFullPlayerName(member.name) == normLocalPlayer then
+                if Grouper.NormalizeFullPlayerName(member.name) == normLocalPlayer and (not myCurrentGroupId or group.id == myCurrentGroupId) then
                     if self.db and self.db.profile and self.db.profile.debug and self.db.profile.debug.enabled then
-                        self:Print("DEBUG: [CreateManageTab] Matched! Adding group " .. tostring(group.id))
+                        self:Print("DEBUG: [CreateManageTab] Matched! Adding group " .. tostring(group.id) .. " (groupId match: " .. tostring(group.id == myCurrentGroupId) .. ")")
                     end
                     table.insert(myGroups, group)
                     break

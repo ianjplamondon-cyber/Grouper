@@ -1,4 +1,4 @@
--- 
+--  
 function Grouper:LeaderRemoveMemberFromCache(leftName)
     local playerName = UnitName("player")
     local fullPlayerName = Grouper.GetFullPlayerName(playerName)
@@ -11,35 +11,35 @@ function Grouper:LeaderRemoveMemberFromCache(leftName)
             break
         end
     end
+    -- Check if player is leader in self.groups
     if not isLeader then
-        -- Non-leader: clear all non-local players from self.players
-        local playerName = UnitName("player")
-        local fullPlayerName = Grouper.GetFullPlayerName(playerName)
-        local normLocal = Grouper.NormalizeFullPlayerName(fullPlayerName)
-        for cacheName, info in pairs(self.players) do
-            if Grouper.NormalizeFullPlayerName(cacheName) ~= normLocal then
+    
+    end
+    -- Remove from cache (self.players)
+    local leaderName = Grouper.GetFullPlayerName(UnitName("player"))
+    local leaderGroupId = nil
+    -- Find the groupId for which the current player is leader
+    for groupId, group in pairs(self.groups) do
+        if Grouper.NormalizeFullPlayerName(group.leader) == Grouper.NormalizeFullPlayerName(leaderName) then
+            leaderGroupId = groupId
+            break
+        end
+    end
+    for cacheName, info in pairs(self.players) do
+        -- Only consider entries with the same groupId as the leader
+        if info.groupId == leaderGroupId then
+            local normCacheName = Grouper.NormalizeFullPlayerName(cacheName)
+            local normLeftName = Grouper.NormalizeFullPlayerName(leftName)
+            local normInfoFullName = info.fullName and Grouper.NormalizeFullPlayerName(info.fullName) or nil
+            local normLeftNameFull = Grouper.NormalizeFullPlayerName(Grouper.GetFullPlayerName(leftName))
+            local isDeparted = (normCacheName == normLeftName or normCacheName == normLeftNameFull or (normInfoFullName and normInfoFullName == normLeftName) or (normInfoFullName and normInfoFullName == normLeftNameFull))
+            local normLeaderName = Grouper.NormalizeFullPlayerName(leaderName)
+            local isLeader = (normCacheName == normLeaderName or (normInfoFullName and normInfoFullName == normLeaderName))
+            if isDeparted and not isLeader then
                 self.players[cacheName] = nil
                 if self.db and self.db.profile and self.db.profile.debug and self.db.profile.debug.enabled then
-                    self:Print("DEBUG: [LeaderRemoveMemberFromCache] Non-leader left group, removed " .. cacheName .. " from cache.")
+                    self:Print("DEBUG: [LeaderRemoveMemberFromCache] Removed " .. cacheName .. " from cache after leaving party.")
                 end
-            end
-        end
-        return
-    end
-    -- Leader logic remains unchanged
-    local leaderName = Grouper.GetFullPlayerName(UnitName("player"))
-    for cacheName, info in pairs(self.players) do
-        local normCacheName = Grouper.NormalizeFullPlayerName(cacheName)
-        local normLeftName = Grouper.NormalizeFullPlayerName(leftName)
-        local normInfoFullName = info.fullName and Grouper.NormalizeFullPlayerName(info.fullName) or nil
-        local normLeftNameFull = Grouper.NormalizeFullPlayerName(Grouper.GetFullPlayerName(leftName))
-        local isDeparted = (normCacheName == normLeftName or normCacheName == normLeftNameFull or (normInfoFullName and normInfoFullName == normLeftName) or (normInfoFullName and normInfoFullName == normLeftNameFull))
-        local normLeaderName = Grouper.NormalizeFullPlayerName(leaderName)
-        local isLeader = (normCacheName == normLeaderName or (normInfoFullName and normInfoFullName == normLeaderName))
-        if isDeparted and not isLeader then
-            self.players[cacheName] = nil
-            if self.db and self.db.profile and self.db.profile.debug and self.db.profile.debug.enabled then
-                self:Print("DEBUG: [LeaderRemoveMemberFromCache] Removed " .. cacheName .. " from cache after leaving party.")
             end
         end
     end
