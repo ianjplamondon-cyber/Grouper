@@ -524,6 +524,11 @@ function Grouper:CreateGroup(groupData)
                         self.playerInfo.lastSeen = self.players[normFullName].lastSeen
                         self.playerInfo.leader = self.players[normFullName].leader
                         self.playerInfo.groupId = self.players[normFullName].groupId
+
+                        -- Immediately refresh the manage tab UI after syncing
+                        if self.mainFrame and self.mainFrame:IsShown() and self.tabGroup then
+                            self.tabGroup:SelectTab("manage")
+                        end
                     end
                 end
             end
