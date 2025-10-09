@@ -156,6 +156,21 @@ function Grouper:OnChannelLeave(event, text, playerName, languageName, channelNa
 end
 
 -- Communication functions using AceComm-3.0
+
+-- Utility: Normalize a full player name to always use dash, never colon, and strip spaces from realm
+function Grouper.NormalizeFullPlayerName(name)
+    if not name or type(name) ~= "string" then return name end
+    -- Remove any colons (legacy bug), but this should not be needed if code is correct
+    name = name:gsub(":", "")
+    -- If name contains a realm, ensure realm has no spaces (remove all spaces)
+    local base, realm = name:match("^([^%-]+)%-(.+)$")
+    if base and realm then
+        realm = realm:gsub("%s+", "")
+        return base .. "-" .. realm
+    end
+    return name
+end
+
 function Grouper:SendComm(messageType, data, distribution, target, priority)
     -- For GROUP_UPDATE, GROUP_REMOVE, and REQUEST_DATA, use direct channel messaging for CHANNEL distribution
     -- But allow WHISPER and other distributions to use proper AceComm
@@ -170,7 +185,7 @@ function Grouper:SendComm(messageType, data, distribution, target, priority)
     elseif messageType == "REQUEST_DATA" and (distribution == "CHANNEL" or not distribution) then
         return self:SendRequestDataViaChannel(data)
     end
-    
+
     -- For WHISPER and other distributions, use standard AceComm which works fine
     if self.db and self.db.profile and self.db.profile.debug and self.db.profile.debug.enabled then
         self:Print(string.format("DEBUG: ⚡ SendComm called with messageType='%s', distribution='%s', target='%s'", messageType, distribution or "default", tostring(target)))
@@ -185,13 +200,14 @@ function Grouper:SendComm(messageType, data, distribution, target, priority)
     end
     local distributionType = distribution or "CHANNEL"
     local commTarget = target
-    -- Always normalize whisper target (remove spaces from realm)
+    -- Always normalize whisper target (remove spaces from realm, replace colons with dash)
     if distributionType == "WHISPER" and commTarget then
         local before = tostring(commTarget)
         -- If the target does not include a realm, append the sender's realm
         if not commTarget:find("-") then
             local _, senderRealm = UnitName("player")
             if senderRealm and senderRealm ~= "" then
+                senderRealm = senderRealm:gsub("%s+", "")
                 commTarget = commTarget .. "-" .. senderRealm
             end
         end
@@ -244,7 +260,7 @@ function Grouper:SendComm(messageType, data, distribution, target, priority)
             self:SendCommMessage(prefix, self:Serialize(message), distributionType, commTarget, commPriority)
         end
     end)
-    
+
     if success then
         if self.db.profile.debug.enabled then
             self:Print(string.format("DEBUG: ✓ AceComm %s sent successfully via %s", messageType, distributionType))
@@ -637,7 +653,9 @@ function Grouper:HandleDirectGroupRemove(message, sender)
             self:Print(string.format("DEBUG: ✓ Removed group %s by leader %s", groupId, sender))
         end
         -- Refresh the UI to reflect the removal
-        self:RefreshGroupList()
+    -- Refresh both Results and Manage tabs to ensure UI is up to date after group removal
+    if self.RefreshGroupListResults then self:RefreshGroupListResults() end
+    if self.RefreshGroupListManage then self:RefreshGroupListManage() end
     else
         if self.db.profile.debug.enabled then
             if not group then
@@ -1859,7 +1877,9 @@ function Grouper:ProcessReceivedMessage(messageType, data, sender)
         if self.db.profile.debug.enabled then
             self:Print(string.format("DEBUG: Refreshing UI after processing AceComm message (total groups: %d)", self:CountGroups()))
         end
-        self:RefreshGroupList()
+    -- Refresh both Results and Manage tabs to ensure UI is up to date
+    if self.RefreshGroupListResults then self:RefreshGroupListResults() end
+    if self.RefreshGroupListManage then self:RefreshGroupListManage() end
     end
 end
 
@@ -2174,12 +2194,12 @@ end
 local function GetFullPlayerName(name)
     if not name then return "" end
     local realm = GetRealmName()
-    -- Remove spaces from realm name for consistency
-    realm = realm:gsub("%s", "")
+    -- Remove all spaces from realm name for consistency
+    realm = realm:gsub("%s+", "")
     if name:find("-") then
         local base, r = name:match("^(.-)%-(.+)$")
         if base and r then
-            r = r:gsub("%s", "")
+            r = r:gsub("%s+", "")
             return base .. "-" .. r
         end
         return name

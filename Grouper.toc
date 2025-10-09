@@ -30,4 +30,8 @@ Data\InstanceData.lua
 GrouperCore.lua
 GrouperComs.lua
 GrouperUtilities.lua
+GrouperBrowse.lua
+GrouperCreate.lua
+GrouperManage.lua
+GrouperResults.lua
 Grouper.lua

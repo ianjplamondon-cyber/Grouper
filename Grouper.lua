@@ -1,4 +1,4 @@
--- Remove departed member's data from cache (party leader only)
+-- 
 function Grouper:LeaderRemoveMemberFromCache(leftName)
     local playerName = UnitName("player")
     local fullPlayerName = Grouper.GetFullPlayerName(playerName)
@@ -139,112 +139,6 @@ local GrouperDBDefaults = {
     }
 }
 
--- Update group members when player joins a group
-function Grouper:HandleJoinedGroup()
-    if self.db and self.db.profile and self.db.profile.debug and self.db.profile.debug.enabled then
-        self:Print("DEBUG: HandleJoinedGroup - preparing to broadcast updated group data.")
-        self:Print("DEBUG: HandleJoinedGroup stack trace:")
-        self:Print(debugstack(2, 10, 10))
-        self:Print("DEBUG: Player joined a group - updating members list")
-    end
-
-    -- Update the members field of all relevant groups (not just those led by the player)
-    local updated = false
-    for groupId, group in pairs(self.groups) do
-        group.members = {}
-        local leaderFound = false
-        local function CamelCaseRole(role)
-            if not role or role == "None" or role == "?" then return role end
-            if role:lower() == "dps" then return "DPS" end
-            return role:sub(1,1):upper() .. role:sub(2):lower()
-        end
-        local function CamelCaseClass(class)
-            if not class or class == "?" then return class end
-            return class:sub(1,1):upper() .. class:sub(2):lower()
-        end
-        if self.players then
-            local groupLeader = Grouper.NormalizeFullPlayerName(group.leader)
-            for playerKey, playerInfo in pairs(self.players) do
-                -- Only consider FullName keys (those containing a dash)
-                if type(playerKey) == "string" and string.find(playerKey, "-") then
-                    local normKey = Grouper.NormalizeFullPlayerName(playerKey)
-                    if normKey ~= playerKey then
-                        -- Merge and remove old key
-                        for field, val in pairs(playerInfo) do
-                            self.players[normKey] = self.players[normKey] or {}
-                            if self.players[normKey][field] == nil then
-                                self.players[normKey][field] = val
-                            end
-                        end
-                        self.players[playerKey] = nil
-                        playerInfo = self.players[normKey]
-                    end
-                    if playerInfo and playerInfo.groupId == groupId and playerInfo.lastSeen then
-                        -- Set leader attribute
-                        if normKey == groupLeader then
-                            playerInfo.leader = true
-                            leaderFound = true
-                        else
-                            playerInfo.leader = false
-                        end
-                        -- Ensure leader status is saved in cache
-                        self.players[normKey] = self.players[normKey] or {}
-                        self.players[normKey].leader = playerInfo.leader
-                        table.insert(group.members, {
-                            name = playerInfo.fullName,
-                            class = CamelCaseClass(playerInfo.class or "?"),
-                            role = CamelCaseRole(playerInfo.role or "?"),
-                            race = playerInfo.race or "?",
-                            level = playerInfo.level or "?",
-                            leader = playerInfo.leader
-                        })
-                    end
-                end
-            end
-            -- If leader not found in self.players, add them explicitly
-            if not leaderFound and groupLeader then
-                local normLeader = groupLeader
-                local leaderInfo = self.players[normLeader]
-                if not leaderInfo then
-                    for k, info in pairs(self.players) do
-                        if Grouper.NormalizeFullPlayerName(k) == normLeader then
-                            -- Merge and remove old key
-                            for field, val in pairs(info) do
-                                self.players[normLeader] = self.players[normLeader] or {}
-                                if self.players[normLeader][field] == nil then
-                                    self.players[normLeader][field] = val
-                                end
-                            end
-                            self.players[k] = nil
-                            leaderInfo = self.players[normLeader]
-                            break
-                        end
-                    end
-                end
-                local myRole = leaderInfo and leaderInfo.role or "?"
-                -- Ensure leader status is saved in cache
-                self.players[normLeader] = self.players[normLeader] or {}
-                self.players[normLeader].leader = true
-                table.insert(group.members, {
-                    name = groupLeader,
-                    class = CamelCaseClass(leaderInfo and leaderInfo.class or UnitClass("player") or "?"),
-                    role = CamelCaseRole(myRole or "?"),
-                    race = leaderInfo and leaderInfo.race or UnitRace("player") or "?",
-                    level = leaderInfo and leaderInfo.level or UnitLevel("player") or "?",
-                    leader = true
-                })
-            end
-        end
-        updated = true
-    end
-    if updated then
-        self:RefreshGroupList("manage")
-    end
-    -- If the My Groups tab is open, force a tab refresh to update the Sync button and members
-    if self.tabGroup and self.tabGroup.selected == "manage" then
-        self.tabGroup:SelectTab("manage")
-    end
-end
 
 -- Update state when player leaves a group
 function Grouper:HandleLeftGroup()
@@ -254,7 +148,7 @@ function Grouper:HandleLeftGroup()
     end
  end
 
--- System message event handler for group join
+ -- System message event handler for group join
 local GrouperEventFrame = CreateFrame("Frame")
 GrouperEventFrame:RegisterEvent("CHAT_MSG_SYSTEM")
 GrouperEventFrame:SetScript("OnEvent", function(self, event, msg)
@@ -271,8 +165,11 @@ GrouperEventFrame:SetScript("OnEvent", function(self, event, msg)
         local joinedName = msg:match(joinedPartyPattern)
         local invitedName = msg:match(invitedPattern)
         if joinedName and not invitedName then
-            if Grouper and Grouper.HandleJoinedGroup then
-                Grouper:HandleJoinedGroup()
+            if Grouper and Grouper.HandleJoinedGroupManage then
+                Grouper:HandleJoinedGroupManage()
+            end
+            if Grouper and Grouper.HandleJoinedGroupResults then
+                Grouper:HandleJoinedGroupResults()
             end
         elseif msg:find("leaves the party") then
             local leftPartyPattern = "^(.-) leaves the party%.$"
@@ -299,14 +196,14 @@ GrouperEventFrame:SetScript("OnEvent", function(self, event, msg)
                         Grouper:Print("DEBUG: [LeaveGroup] Removed group " .. tostring(groupIdToRemove) .. " from UI for non-leader.")
                     end
                 end
-                if Grouper.RefreshGroupList then
-                    Grouper:RefreshGroupList("results")
+                if Grouper.RefreshGroupListResults then
+                    Grouper:RefreshGroupListResults()
                 end
             end
             if Grouper and Grouper.HandleLeftGroup then
                 Grouper:HandleLeftGroup()
-                if Grouper.RefreshGroupList then
-                    Grouper:RefreshGroupList("results")
+                if Grouper.RefreshGroupListResults then
+                    Grouper:RefreshGroupListResults()
                 end
             end
         elseif msg:find("You leave the group%.") or msg:find("leaves the party%.") or msg:find("You have been removed from the group%.") or msg:find("Your group has been disbanded%.") or msg:find("You have disbanded the group%.") then
@@ -349,8 +246,8 @@ GrouperEventFrame:SetScript("OnEvent", function(self, event, msg)
             end
             if Grouper and Grouper.HandleLeftGroup then
                 Grouper:HandleLeftGroup()
-                if Grouper.RefreshGroupList then
-                    Grouper:RefreshGroupList("manage")
+                if Grouper.RefreshGroupListManage then
+                    Grouper:RefreshGroupListManage()
                 end
             end
         end
@@ -422,8 +319,8 @@ GrouperEventFrame:SetScript("OnEvent", function(self, event, msg)
             end
             if Grouper and Grouper.HandleLeftGroup then
                 Grouper:HandleLeftGroup()
-                if Grouper.RefreshGroupList then
-                    Grouper:RefreshGroupList("manage")
+                if Grouper.RefreshGroupListManage then
+                    Grouper:RefreshGroupListManage()
                 end
             end
         elseif msg:find("You leave the group%.") then
@@ -438,8 +335,8 @@ GrouperEventFrame:SetScript("OnEvent", function(self, event, msg)
             end
             if Grouper and Grouper.HandleLeftGroup then
                 Grouper:HandleLeftGroup()
-                if Grouper.RefreshGroupList then
-                    Grouper:RefreshGroupList("manage")
+                if Grouper.RefreshGroupListManage then
+                    Grouper:RefreshGroupListManage()
                 end
             end
         end
@@ -455,38 +352,12 @@ GrouperEventFrame:SetScript("OnEvent", function(self, event, msg)
     local joinedName = msg:match(joinedPartyPattern)
     local invitedName = msg:match(invitedPattern)
     if joinedName and not invitedName then
-            if Grouper and Grouper.HandleJoinedGroup then
-                Grouper:HandleJoinedGroup()
-                --[[
-                -- Broadcast updated group data to all users after join is processed, with a delay and retry
-                if Grouper.groups then
-                    local inGroup = IsInGroup and IsInGroup() or false
-                    if Grouper.db and Grouper.db.profile and Grouper.db.profile.debug and Grouper.db.profile.debug.enabled then
-                        Grouper:Print(string.format("DEBUG: [SystemJoin] IsInGroup() = %s", tostring(inGroup)))
-                    end
-                    if inGroup then
-                        for groupId, group in pairs(Grouper.groups) do
-                            if group.leader == Grouper.GetFullPlayerName(UnitName("player")) and Grouper.SendGroupUpdateViaChannel then
-                                if Grouper.db and Grouper.db.profile and Grouper.db.profile.debug and Grouper.db.profile.debug.enabled then
-                                    Grouper:Print(string.format("DEBUG: [SystemJoin] About to SendGroupUpdateViaChannel for groupId=%s, title=%s", group.id, group.title))
-                                end
-                                Grouper:SendGroupUpdateViaChannel(group)
-                                if Grouper.db and Grouper.db.profile and Grouper.db.profile.debug and Grouper.db.profile.debug.enabled then
-                                    Grouper:Print("DEBUG: Broadcasted updated group data after system join event.")
-                                end
-                            end
-                        end
-                    else
-                        if Grouper.db and Grouper.db.profile and Grouper.db.profile.debug and Grouper.db.profile.debug.enabled then
-                            Grouper:Print("DEBUG: [SystemJoin] Group not formed yet (IsInGroup()=false), skipping broadcast.")
-                        end
-                    end
-                end
-                --]]
-                if Grouper.RefreshGroupList then
-                    Grouper:RefreshGroupList("manage")
-                end
-            end
+        if Grouper and Grouper.HandleJoinedGroupManage then
+            Grouper:HandleJoinedGroupManage()
+        end
+        if Grouper and Grouper.HandleJoinedGroupResults then
+            Grouper:HandleJoinedGroupResults()
+        end
         -- Player leaves the party
         elseif msg:find("leaves the party") then
             local leftPartyPattern = "^(.-) leaves the party%.$"
@@ -496,8 +367,8 @@ GrouperEventFrame:SetScript("OnEvent", function(self, event, msg)
             end
             if Grouper and Grouper.HandleLeftGroup then
                 Grouper:HandleLeftGroup()
-                if Grouper.RefreshGroupList then
-                    Grouper:RefreshGroupList("manage")
+                if Grouper.RefreshGroupListManage then
+                    Grouper:RefreshGroupListManage()
                 end
             end
         elseif msg:find("You have disbanded the group") then
@@ -513,10 +384,15 @@ GrouperEventFrame:SetScript("OnEvent", function(self, event, msg)
             end
             if Grouper and Grouper.HandleLeftGroup then
                 Grouper:HandleLeftGroup()
-                if Grouper.RefreshGroupList then
-                    Grouper:RefreshGroupList("manage")
+                if Grouper.RefreshGroupListManage then
+                    Grouper:RefreshGroupListManage()
                 end
             end
+
+        end
+    end
+end)
+
 -- Remove departed member's data from cache (only for party leader)
 function Grouper:HandlePartyMemberLeft(leftName)
     -- Remove from cache (self.players)
@@ -529,9 +405,6 @@ function Grouper:HandlePartyMemberLeft(leftName)
         end
     end
 end
-        end
-    end
-end)
 
 -- Group management functions
 function Grouper:CreateGroup(groupData)
@@ -737,7 +610,7 @@ function Grouper:CreateGroup(groupData)
     -- self:Print(string.format("Created group: %s", group.title))
     -- Immediately refresh the UI so the new group appears
     if self.mainFrame and self.mainFrame:IsShown() then
-        self:RefreshGroupList()
+        self:RefreshGroupListManage()
     end
     if Grouper.UpdateLDBGroupCount then Grouper:UpdateLDBGroupCount() end
     return group
@@ -1001,7 +874,7 @@ function Grouper:HandleGroupUpdate(groupData, sender)
                         end
                     end
                 end
-                self:RefreshGroupList("results")
+                self:RefreshGroupListResults()
             end
         end
     else
@@ -1062,7 +935,8 @@ function Grouper:RemoveGroupByLeader(leader)
     for _, groupId in ipairs(toRemove) do
         self.groups[groupId] = nil
     end
-    self:RefreshGroupList()
+    self:RefreshGroupListResults()
+    self:RefreshGroupListManage()
 end
 
 -- When a response is received from a party leader, clear pending removal
@@ -1196,7 +1070,8 @@ function Grouper:ToggleMainWindow()
         self:EnsureChannelJoined()
         
         self:CreateMainWindow()
-        self:RefreshGroupList()
+        self:RefreshGroupListResults()
+        self:RefreshGroupListManage()
         self.mainFrame:Show()
     end
 end
@@ -1319,7 +1194,7 @@ function Grouper:CreateMainWindow()
     self:CreateMainWindowContent()
 end
 
--- 
+-- Create main window content with tabs 
 function Grouper:CreateMainWindowContent()
     if not self.mainFrame then
         return
@@ -1366,1017 +1241,9 @@ function Grouper:ShowTab(container, tabName)
     elseif tabName == "manage" then
         self:CreateManageTab(container)
     elseif tabName == "results" then
-        self:CreateResultsTab(container) -- New case for results tab
+    self:CreateResultsTab(container) -- New case for results tab
     end
 
-end
-
--- Create the Search Filters tab
-function Grouper:CreateBrowseTab(container)
-    -- Filter section
-    local filterGroup = AceGUI:Create("InlineGroup")
-    filterGroup:SetTitle("Filters")
-    filterGroup:SetFullWidth(true)
-    filterGroup:SetLayout("Flow")
-    container:AddChild(filterGroup)
-    
-    -- Level range
-    local minLevelSlider = AceGUI:Create("Slider")
-    minLevelSlider:SetLabel("Min Level")
-    minLevelSlider:SetSliderValues(1, 60, 1)
-    minLevelSlider:SetValue(self.db.profile.filters.minLevel)
-    minLevelSlider:SetWidth(120) -- Reduced from 150
-    minLevelSlider:SetCallback("OnValueChanged", function(widget, event, value)
-        self.db.profile.filters.minLevel = value
-        self:RefreshGroupList()
-    end)
-    filterGroup:AddChild(minLevelSlider)
-    
-    local maxLevelSlider = AceGUI:Create("Slider")
-    maxLevelSlider:SetLabel("Max Level")
-    maxLevelSlider:SetSliderValues(1, 60, 1)
-    maxLevelSlider:SetValue(self.db.profile.filters.maxLevel)
-    maxLevelSlider:SetWidth(120) -- Reduced from 150
-    maxLevelSlider:SetCallback("OnValueChanged", function(widget, event, value)
-        self.db.profile.filters.maxLevel = value
-        self:RefreshGroupList()
-    end)
-    filterGroup:AddChild(maxLevelSlider)
-    
-    -- Group type checkboxes
-    local typeGroup = AceGUI:Create("SimpleGroup")
-    typeGroup:SetLayout("Flow")
-    typeGroup:SetFullWidth(true)
-    filterGroup:AddChild(typeGroup)
-    
-    local groupTypes = {
-        {key = "dungeon", label = "Dungeon"},
-        {key = "raid", label = "Raid"},
-        {key = "quest", label = "Quest"},
-        {key = "pvp", label = "PvP"},
-        {key = "other", label = "Other"}
-    }
-    
-    for _, typeInfo in ipairs(groupTypes) do
-        local checkbox = AceGUI:Create("CheckBox")
-        checkbox:SetLabel(typeInfo.label)
-        checkbox:SetValue(self.db.profile.filters.dungeonTypes[typeInfo.key])
-        checkbox:SetWidth(85) -- Reduced from 100 to make more compact
-        if typeInfo.key == "raid" or typeInfo.key == "pvp" then
-            checkbox:SetDisabled(true)
-        end
-        checkbox:SetCallback("OnValueChanged", function(widget, event, value)
-            self.db.profile.filters.dungeonTypes[typeInfo.key] = value
-            self:RefreshGroupList()
-        end)
-        typeGroup:AddChild(checkbox)
-    end
-    
-    -- Role filter dropdown
-    local roleFilterDropdown = AceGUI:Create("Dropdown")
-    roleFilterDropdown:SetLabel("Filter by Role")
-    roleFilterDropdown:SetList({
-        any = "Any",
-        tank = "Tank",
-        healer = "Healer",
-        dps = "DPS"
-    })
-    roleFilterDropdown:SetValue(self.db.profile.filters.role or "any")
-    roleFilterDropdown:SetWidth(120)
-    roleFilterDropdown:SetCallback("OnValueChanged", function(widget, event, value)
-        self.db.profile.filters.role = value
-        self:RefreshGroupList()
-    end)
-    filterGroup:AddChild(roleFilterDropdown)
-    -- Dungeon filter dropdown
-    local dungeonFilter = AceGUI:Create("Dropdown")
-    dungeonFilter:SetLabel("Filter by Dungeon")
-    dungeonFilter:SetWidth(180) -- Reduced from 200
-    
-    -- Build dungeon list for dropdown
-    local dungeonList = {[""] = "All Dungeons"}
-    for _, dungeon in ipairs(DUNGEONS) do
-        if dungeon.id and dungeon.id >= 1 and dungeon.id <= 26 then
-            dungeonList[dungeon.name] = dungeon.name
-        end
-    end
-    dungeonFilter:SetList(dungeonList)
-    dungeonFilter:SetValue("")
-    dungeonFilter:SetCallback("OnValueChanged", function(widget, event, value)
-        self.selectedDungeonFilter = value
-        self:RefreshGroupList()
-    end)
-    filterGroup:AddChild(dungeonFilter)
-    
-    -- Refresh button
-    local refreshButton = AceGUI:Create("Button")
-    refreshButton:SetText("Refresh")
-    refreshButton:SetWidth(80)
-    refreshButton:SetCallback("OnClick", function()
-        if self.db.profile.debug.enabled then
-            self:Print("DEBUG: Refresh button clicked - requesting fresh data from other players")
-        end
-        self:SendComm("REQUEST_DATA", {type = "request", timestamp = time()})
-
-        -- Track pending responses for each group
-        if not self.pendingGroupResponses then self.pendingGroupResponses = {} end
-        local now = time()
-        for groupId, group in pairs(self.groups or {}) do
-            local leader = group.leader
-            self.pendingGroupResponses[leader] = now
-            --[[
-            -- Schedule removal if no response
-            self:ScheduleTimer(function()
-                if self.pendingGroupResponses[leader] == now then
-                    if self.db.profile.debug.enabled then
-                        self:Print("DEBUG: No response from " .. leader .. " after 10s, removing group.")
-                    end
-                    self:RemoveGroupByLeader(leader)
-                    self.pendingGroupResponses[leader] = nil
-                end
-            end, 10)
-            --]]
-        end
-        
-        --[[
-        -- Also schedule a delayed refresh
-        self:ScheduleTimer(function()
-            if self.db.profile.debug.enabled then
-                self:Print("DEBUG: Delayed refresh after REQUEST_DATA timeout")
-            end
-            self:RefreshGroupList()
-        end, 15)
-        --]]
-    end)
-    filterGroup:AddChild(refreshButton)
-    
-    -- Groups list
-    local groupsScrollFrame = AceGUI:Create("ScrollFrame")
-    groupsScrollFrame:SetFullWidth(true)
-    groupsScrollFrame:SetFullHeight(true)
-    groupsScrollFrame:SetLayout("List")
-    container:AddChild(groupsScrollFrame)
-
-    self.groupsScrollFrame = groupsScrollFrame
-    self:RefreshGroupList()
-    
-end
-
--- Create the Search Results tab
-function Grouper:CreateResultsTab(container)
-    local groupsScrollFrame = AceGUI:Create("ScrollFrame")
-    groupsScrollFrame:SetFullWidth(true)
-    groupsScrollFrame:SetFullHeight(true)
-    groupsScrollFrame:SetLayout("List")
-    container:AddChild(groupsScrollFrame)
-    
-    self.groupsScrollFrame = groupsScrollFrame
-    if self.db and self.db.profile and self.db.profile.debug and self.db.profile.debug.enabled then
-        self:Print("DEBUG: [CreateResultsTab] groupsScrollFrame set: " .. tostring(self.groupsScrollFrame) .. "\n" .. debugstack(2, 10, 10))
-    end
-    self:RefreshGroupList("results")
-end
-
--- Create the Create Group tab
-function Grouper:CreateCreateTab(container)
-    local scrollFrame = AceGUI:Create("ScrollFrame")
-    scrollFrame:SetFullWidth(true)
-    scrollFrame:SetFullHeight(true)
-    scrollFrame:SetLayout("Flow")
-    container:AddChild(scrollFrame)
-    
-    -- Group title
-    local titleEdit = AceGUI:Create("EditBox")
-    titleEdit:SetLabel("Group Title (max 20 chars)")
-    titleEdit:SetFullWidth(true)
-    titleEdit:SetMaxLetters(20)
-    titleEdit:SetText("")
-    scrollFrame:AddChild(titleEdit)
-    
-    -- Event type dropdown (encoded as numbers when sent)
-    local typeDropdown = AceGUI:Create("Dropdown")
-    typeDropdown:SetLabel("Event Type")
-    typeDropdown:SetList({
-        dungeon = "Dungeon",
-        --raid = "Raid",
-        quest = "Quest",
-        --pvp = "PvP",
-        other = "Other"
-    })
-    typeDropdown:SetValue("dungeon") -- Default to dungeon
-    typeDropdown:SetFullWidth(true)
-    scrollFrame:AddChild(typeDropdown)
-    --[[
-    -- Level range (move before dungeon selection so it's in scope)
-    local levelGroup = AceGUI:Create("SimpleGroup")
-    levelGroup:SetLayout("Flow")
-    levelGroup:SetFullWidth(true)
-    scrollFrame:AddChild(levelGroup)
-    
-    local minLevelEdit = AceGUI:Create("EditBox")
-    minLevelEdit:SetLabel("Min Level")
-    minLevelEdit:SetText("15") -- Default for dungeons
-    minLevelEdit:SetWidth(100)
-    levelGroup:AddChild(minLevelEdit)
-    
-    local maxLevelEdit = AceGUI:Create("EditBox")
-    maxLevelEdit:SetLabel("Max Level")
-    maxLevelEdit:SetText("25") -- Default for dungeons  
-    maxLevelEdit:SetWidth(100)
-    levelGroup:AddChild(maxLevelEdit)
-    --]]
-    -- Dungeon selection (multi-select) - filtered by type dropdown
-    local dungeonGroup = AceGUI:Create("InlineGroup")
-    dungeonGroup:SetTitle("Select Dungeons/Raids/Battlegrounds")
-    dungeonGroup:SetFullWidth(true)
-    dungeonGroup:SetLayout("Flow")
-    scrollFrame:AddChild(dungeonGroup)
-    
-    local selectedDungeons = {}
-    local dungeonCheckboxes = {}
-    
-    -- Function to filter dungeons based on selected type
-    local function updateDungeonList()
-        local selectedType = typeDropdown:GetValue()
-        dungeonGroup:ReleaseChildren()
-        selectedDungeons = {}
-        dungeonCheckboxes = {}
-        
-        -- Only show dungeon/battleground list if dungeon, raid, or pvp is selected
-        if selectedType ~= "dungeon" and selectedType ~= "raid" and selectedType ~= "pvp" then
-            return
-        end
-        
-        for i, dungeon in ipairs(DUNGEONS) do
-            -- Show dungeons/raids/battlegrounds that match the selected type
-            if selectedType == "other" or dungeon.type == selectedType then
-                local checkbox = AceGUI:Create("CheckBox")
-                checkbox:SetLabel(string.format("%s (%d-%d)", dungeon.name, dungeon.minLevel, dungeon.maxLevel))
-                checkbox:SetWidth(300)
-                
-                -- Store bracket group for this battleground
-                local bracketGroup = nil
-                local bracketCheckboxes = {}
-                
-                checkbox:SetCallback("OnValueChanged", function(widget, event, value)
-                    if value then
-                        selectedDungeons[dungeon.name] = dungeon
-                        
-                        -- If this is a battleground with brackets, show bracket selection
-                        if dungeon.type == "pvp" and dungeon.brackets then
-                            -- Create bracket selection group
-                            bracketGroup = AceGUI:Create("InlineGroup")
-                            bracketGroup:SetTitle(dungeon.name .. " Level Brackets")
-                            bracketGroup:SetFullWidth(true)
-                            bracketGroup:SetLayout("Flow")
-                            dungeonGroup:AddChild(bracketGroup)
-                            
-                            -- Add bracket checkboxes
-                            for _, bracket in ipairs(dungeon.brackets) do
-                                local bracketCheckbox = AceGUI:Create("CheckBox")
-                                bracketCheckbox:SetLabel(bracket.name)
-                                bracketCheckbox:SetWidth(80)
-                                bracketCheckbox:SetCallback("OnValueChanged", function(bracketWidget, bracketEvent, bracketValue)
-                                    if bracketValue then
-                                        -- Update level range to this bracket's range
-                                        minLevelEdit:SetText(tostring(bracket.minLevel))
-                                        maxLevelEdit:SetText(tostring(bracket.maxLevel))
-                                        
-                                        -- Uncheck other brackets for this battleground
-                                        for otherBracket, otherCheckbox in pairs(bracketCheckboxes) do
-                                            if otherCheckbox ~= bracketWidget then
-                                                otherCheckbox:SetValue(false)
-                                            end
-                                        end
-                                        
-                                        -- Store selected bracket info
-                                        selectedDungeons[dungeon.name] = {
-                                            name = dungeon.name,
-                                            type = dungeon.type,
-                                            bracket = bracket,
-                                            minLevel = bracket.minLevel,
-                                            maxLevel = bracket.maxLevel
-                                        }
-                                    else
-                                        -- If unchecking, revert to general battleground selection
-                                        selectedDungeons[dungeon.name] = dungeon
-                                        minLevelEdit:SetText(tostring(dungeon.minLevel))
-                                        maxLevelEdit:SetText(tostring(dungeon.maxLevel))
-                                    end
-                                end)
-                                bracketGroup:AddChild(bracketCheckbox)
-                                bracketCheckboxes[bracket.name] = bracketCheckbox
-                            end
-                        else
-                            -- For non-battlegrounds, just update level range normally
-                            --minLevelEdit:SetText(tostring(dungeon.minLevel))
-                            --maxLevelEdit:SetText(tostring(dungeon.maxLevel))
-                        end
-                    else
-                        selectedDungeons[dungeon.name] = nil
-                        
-                        -- Remove bracket selection if it exists
-                        if bracketGroup then
-                            dungeonGroup:ReleaseChildren()
-                            bracketGroup = nil
-                            bracketCheckboxes = {}
-                            -- Rebuild the main checkbox list
-                            updateDungeonList()
-                            return
-                        end
-                        
-                        -- Reset level range if no dungeons selected
-                        local anySelected = false
-                        for name, selected in pairs(selectedDungeons) do
-                            if selected then
-                                anySelected = true
-                                break
-                            end
-                        end
-                        if not anySelected then
-                            if selectedType == "dungeon" then
-                                minLevelEdit:SetText("15")
-                                maxLevelEdit:SetText("25")
-                            elseif selectedType == "raid" then
-                                minLevelEdit:SetText("60")
-                                maxLevelEdit:SetText("60")
-                            elseif selectedType == "pvp" then
-                                minLevelEdit:SetText("10")
-                                maxLevelEdit:SetText("60")
-                            end
-                        end
-                    end
-                end)
-                dungeonGroup:AddChild(checkbox)
-                dungeonCheckboxes[dungeon.name] = checkbox
-            end
-        end
-    end
-    
-    -- Update dungeon list when type dropdown changes
-    typeDropdown:SetCallback("OnValueChanged", function(widget, event, value)
-        -- Set appropriate level defaults based on type
-        if value == "dungeon" then
-            minLevelEdit:SetText("15")
-            maxLevelEdit:SetText("25")
-        elseif value == "raid" then
-            minLevelEdit:SetText("60")
-            maxLevelEdit:SetText("60")
-        elseif value == "pvp" then
-            minLevelEdit:SetText("10")
-            maxLevelEdit:SetText("60")
-        else
-            minLevelEdit:SetText("1")
-            maxLevelEdit:SetText("60")
-        end
-        updateDungeonList()
-    end)
-    
-    -- Initialize dungeon list
-    updateDungeonList()
-    --[[
-    -- Group size
-    local sizeGroup = AceGUI:Create("SimpleGroup")
-    sizeGroup:SetLayout("Flow")
-    sizeGroup:SetFullWidth(true)
-    scrollFrame:AddChild(sizeGroup)
-    
-    local currentSizeEdit = AceGUI:Create("EditBox")
-    currentSizeEdit:SetLabel("Current Size")
-    currentSizeEdit:SetText("1")
-    currentSizeEdit:SetWidth(100)
-    sizeGroup:AddChild(currentSizeEdit)
-    
-    local maxSizeEdit = AceGUI:Create("EditBox")
-    maxSizeEdit:SetLabel("Max Size")
-    maxSizeEdit:SetText("5")
-    maxSizeEdit:SetWidth(100)
-    sizeGroup:AddChild(maxSizeEdit)
-    --]]
-    -- Location
-    local locationEdit = AceGUI:Create("EditBox")
-    locationEdit:SetLabel("Location/Meeting Point (max 20 chars)")
-    locationEdit:SetFullWidth(true)
-    locationEdit:SetMaxLetters(20)
-    locationEdit:SetText("")
-    scrollFrame:AddChild(locationEdit)
-    
-    -- My role dropdown
-    local roleDropdown = AceGUI:Create("Dropdown")
-    roleDropdown:SetLabel("My Role")
-    roleDropdown:SetList({
-        tank = "Tank",
-        healer = "Healer",
-        dps = "DPS"
-    })
-    -- Restore last selected role from SV if available
-    local lastRole = self.db and self.db.profile and self.db.profile.lastRole
-    if lastRole and (lastRole == "tank" or lastRole == "healer" or lastRole == "dps") then
-        roleDropdown:SetValue(lastRole)
-    else
-        roleDropdown:SetValue("dps")
-    end
-    roleDropdown:SetFullWidth(true)
-    scrollFrame:AddChild(roleDropdown)
-    -- Save role to SV on change
-    roleDropdown:SetCallback("OnValueChanged", function(widget, event, value)
-        if self.db and self.db.profile then
-            self.db.profile.lastRole = value
-        end
-    end)
-    
-    -- Create button
-    local createButton = AceGUI:Create("Button")
-    createButton:SetText("Create Group")
-    createButton:SetFullWidth(true)
-    createButton:SetCallback("OnClick", function()
-        local selectedType = typeDropdown:GetValue()
-
-        -- Encode type as number: 1=Dungeon, 2=Raid, 3=Quest, 4=PvP, 5=Other
-        local typeId = 1 -- Default to dungeon
-        if selectedType == "dungeon" then typeId = 1
-        elseif selectedType == "raid" then typeId = 2
-        elseif selectedType == "quest" then typeId = 3
-        elseif selectedType == "pvp" then typeId = 4
-        elseif selectedType == "other" then typeId = 5
-        end
-
-        -- Determine min/max level from selected dungeons
-        local minLevel, maxLevel
-        for _, dungeon in pairs(selectedDungeons) do
-            local dMin = dungeon.minLevel
-            local dMax = dungeon.maxLevel
-            -- If battleground bracket is selected, use bracket min/max
-            if dungeon.bracket then
-                dMin = dungeon.bracket.minLevel
-                dMax = dungeon.bracket.maxLevel
-            end
-            if not minLevel or dMin < minLevel then minLevel = dMin end
-            if not maxLevel or dMax > maxLevel then maxLevel = dMax end
-        end
-
-        local groupData = {
-            title = titleEdit:GetText(),
-            description = "", -- No longer used
-            type = selectedType or "dungeon",
-            typeId = typeId,
-            minLevel = minLevel,
-            maxLevel = maxLevel,
-            location = locationEdit:GetText(),
-            myRole = roleDropdown:GetValue(),
-            dungeons = selectedDungeons
-        }
-        -- Persist last selected role in SV if available
-        if self.db and self.db.profile then
-            self.db.profile.lastRole = roleDropdown:GetValue()
-        end
-
-        if groupData.title == "" then
-            self:Print("Please enter a group title!")
-            return
-        end
-
-        self:CreateGroup(groupData)
-
-        -- Switch to manage tab
-        if self.tabGroup then
-            self.tabGroup:SelectTab("manage")
-        end
-    end)
-    scrollFrame:AddChild(createButton)
-end
-
--- Create the My Groups tab
-function Grouper:CreateManageTab(container)
-    local scrollFrame = AceGUI:Create("ScrollFrame")
-    scrollFrame:SetFullWidth(true)
-    scrollFrame:SetFullHeight(true)
-    -- AceGUI widget pool bug workaround: clear any fixed height
-    if scrollFrame.frame and scrollFrame.frame.SetHeight then
-        scrollFrame.frame:SetHeight(0)
-    end
-    scrollFrame:SetLayout("List")
-    container:AddChild(scrollFrame)
-        
-    local myGroups = {}
-    local localPlayer = Grouper.GetFullPlayerName(UnitName("player"))
-    local normLocalPlayer = Grouper.NormalizeFullPlayerName(localPlayer)
-    for _, group in pairs(self.groups) do
-        if group.members and type(group.members) == "table" then
-            for _, member in ipairs(group.members) do
-                local normMember = Grouper.NormalizeFullPlayerName(member.name)
-                if self.db and self.db.profile and self.db.profile.debug and self.db.profile.debug.enabled then
-                    self:Print("DEBUG: [CreateManageTab] Comparing member '" .. tostring(normMember) .. "' to local '" .. tostring(normLocalPlayer) .. "' for group " .. tostring(group.id))
-                end
-                if Grouper.NormalizeFullPlayerName(member.name) == normLocalPlayer then
-                    if self.db and self.db.profile and self.db.profile.debug and self.db.profile.debug.enabled then
-                        self:Print("DEBUG: [CreateManageTab] Matched! Adding group " .. tostring(group.id))
-                    end
-                    table.insert(myGroups, group)
-                    break
-                end
-            end
-        end
-    end
-
-    if self.db and self.db.profile and self.db.profile.debug and self.db.profile.debug.enabled then
-        self:Print("DEBUG: [CreateManageTab] myGroups count after filtering: " .. tostring(#myGroups))
-        for i, group in ipairs(myGroups) do
-            self:Print("DEBUG: [CreateManageTab] myGroups[" .. i .. "]: " .. tostring(group.id) .. " - " .. tostring(group.title))
-        end
-    end
-    
-    if #myGroups == 0 then
-        local label = AceGUI:Create("Label")
-        label:SetText("You haven't created any groups yet. Use the 'Create Group' tab to make one!")
-        label:SetFullWidth(true)
-        scrollFrame:AddChild(label)
-    else
-        for _, group in ipairs(myGroups) do
-            local groupFrame = self:CreateGroupManageFrame(group, "manage")
-            scrollFrame:AddChild(groupFrame)
-        end
-    end
-    
-    if self.db and self.db.profile and self.db.profile.debug and self.db.profile.debug.enabled then
-        self:Print("DEBUG: [CreateManageTab] (no groupsScrollFrame assignment, no RefreshGroupList call)")
-    end
-
-end
-
--- Create the party frames in my manage tab
-function Grouper:CreateGroupManageFrame(group, tabType)
-    local frame = AceGUI:Create("InlineGroup")
-    frame:SetTitle(group.title)
-    frame:SetFullWidth(true)
-    frame:SetLayout("Flow")
-    
-    -- Group info
-    local infoLabel = AceGUI:Create("Label")
-    -- Show all selected dungeons (comma-separated), or blank if not a dungeon
-    local dungeonNames = {}
-    if group.dungeons and next(group.dungeons) then
-        for name, _ in pairs(group.dungeons) do
-            table.insert(dungeonNames, name)
-        end
-    elseif group.dungeonId and DUNGEONS then
-        for _, d in ipairs(DUNGEONS) do
-            if d.id == group.dungeonId then table.insert(dungeonNames, d.name) break end
-        end
-    end
-    local dungeonsText = #dungeonNames > 0 and table.concat(dungeonNames, ", ") or "-"
-    infoLabel:SetText(string.format("Type: %s | Dungeons: %s | Level: %d-%d\nMeeting Point: %s",
-        group.type, dungeonsText, group.minLevel, group.maxLevel,
-        group.location ~= "" and group.location or "Not specified"))
-    infoLabel:SetFullWidth(true)
-    frame:AddChild(infoLabel)
-    
-    -- Party member fields
-    local membersGroup = AceGUI:Create("InlineGroup")
-    membersGroup:SetTitle("Party Members")
-    membersGroup:SetFullWidth(true)
-    membersGroup:SetLayout("List")
-    -- WoW class colors
-    local CLASS_COLORS = {
-        WARRIOR = "C79C6E", PALADIN = "F58CBA", HUNTER = "ABD473", ROGUE = "FFF569", PRIEST = "FFFFFF",
-        DEATHKNIGHT = "C41F3B", SHAMAN = "0070DE", MAGE = "69CCF0", WARLOCK = "9482C9", DRUID = "FF7D0A",
-        MONK = "00FF96", DEMONHUNTER = "A330C9", EVOKER = "33937F"
-    }
-    local CLASS_NAMES = { [1]="WARRIOR", [2]="PALADIN", [3]="HUNTER", [4]="ROGUE", [5]="PRIEST", [6]="DEATHKNIGHT", [7]="SHAMAN", [8]="MAGE", [9]="WARLOCK", [10]="DRUID", [11]="MONK", [12]="DEMONHUNTER", [13]="EVOKER" }
-    local RACE_NAMES = { [1]="Human", [2]="Orc", [3]="Dwarf", [4]="NightElf", [5]="Undead", [6]="Tauren", [7]="Gnome", [8]="Troll", [9]="Goblin", [10]="BloodElf", [11]="Draenei", [12]="Worgen", [13]="Pandaren" }
-    if group.type == "dungeon" then
-        -- Simple role-based slotting: tank (1), healer (2), dps (3-5), fill in order, show '?' for unknown roles
-        local function CamelCaseClass(class)
-            if not class or class == "?" then return class end
-            return class:sub(1,1):upper() .. class:sub(2):lower()
-        end
-        local tanks, healers, dps, others = {}, {}, {}, {}
-        if group.members and #group.members > 0 then
-            for _, member in ipairs(group.members) do
-                local role = member.role and string.lower(member.role) or "?"
-                if role == "tank" then
-                    table.insert(tanks, member)
-                elseif role == "healer" then
-                    table.insert(healers, member)
-                elseif role == "dps" then
-                    table.insert(dps, member)
-                else
-                    table.insert(others, member)
-                end
-            end
-        end
-        local sortedMembers = {}
-        sortedMembers[1] = tanks[1]
-        sortedMembers[2] = healers[1]
-        sortedMembers[3] = dps[1]
-        sortedMembers[4] = dps[2]
-        sortedMembers[5] = dps[3]
-        local maxSpots = 5
-        for i = 1, maxSpots do
-            local label = AceGUI:Create("Label")
-            label:SetWidth(500)
-            local member = sortedMembers[i]
-            if member then
-                local className = member.class or (member.classId and CLASS_NAMES[member.classId]) or "PRIEST"
-                className = CamelCaseClass(className)
-                local raceName = member.race or (member.raceId and RACE_NAMES[member.raceId]) or "Human"
-                local color = CLASS_COLORS[string.upper(className)] or "FFFFFF"
-                local roleText = member.role or "?"
-                label:SetText(string.format("|cff%s%s|r | %s | %s | %s | %d", color, member.name or "?", className, roleText, raceName, member.level or 0))
-            else
-                label:SetText("- Empty Slot -")
-            end
-            membersGroup:AddChild(label)
-        end
-    else
-        -- Original logic for non-dungeon types
-        local function CamelCaseClass(class)
-            if not class or class == "?" then return class end
-            return class:sub(1,1):upper() .. class:sub(2):lower()
-        end
-        if group.members and #group.members > 0 then
-            for _, member in ipairs(group.members) do
-                local label = AceGUI:Create("Label")
-                label:SetWidth(250)
-                local className = member.class or (member.classId and CLASS_NAMES[member.classId]) or "PRIEST"
-                className = CamelCaseClass(className)
-                local raceName = member.race or (member.raceId and RACE_NAMES[member.raceId]) or "Human"
-                local color = CLASS_COLORS[string.upper(className)] or "FFFFFF"
-                local roleText = member.role or "?"
-                label:SetText(string.format("|cff%s%s|r | %s | %s | %s | %d", color, member.name or "?", className, roleText, raceName, member.level or 0))
-                membersGroup:AddChild(label)
-            end
-        else
-            local label = AceGUI:Create("Label")
-            label:SetWidth(250)
-            label:SetText("No members found.")
-            membersGroup:AddChild(label)
-        end
-    end
-    frame:AddChild(membersGroup)
-
-    -- Buttons
-    local buttonGroup = AceGUI:Create("SimpleGroup")
-    buttonGroup:SetLayout("Flow")
-    buttonGroup:SetFullWidth(true)
-    frame:AddChild(buttonGroup)
-
-    if tabType == "manage" then
-        local playerName = UnitName("player")
-        local fullPlayerName = Grouper.GetFullPlayerName(playerName)
-        if group.leader == fullPlayerName then
-            local editButton = AceGUI:Create("Button")
-            editButton:SetText("Edit")
-            editButton:SetWidth(100)
-            editButton:SetCallback("OnClick", function()
-                self:ShowEditGroupDialog(group)
-            end)
-            buttonGroup:AddChild(editButton)
-
-            local removeButton = AceGUI:Create("Button")
-            removeButton:SetText("Remove")
-            removeButton:SetWidth(100)
-            removeButton:SetCallback("OnClick", function()
-                -- Find the group key by matching group.id to the key in self.groups
-                local groupKey = nil
-                for k, v in pairs(self.groups) do
-                    if k == group.id then
-                        groupKey = k
-                        break
-                    end
-                end
-                if groupKey then
-                    self:RemoveGroup(groupKey)
-                else
-                    self:Print("Error: Could not find group key for removal.")
-                end
-                if self.tabGroup then
-                    self.tabGroup:SelectTab("manage")
-                end
-            end)
-            buttonGroup:AddChild(removeButton)
-
-            local syncButton = AceGUI:Create("Button")
-            syncButton:SetText("Sync")
-            syncButton:SetWidth(100)
-            syncButton:SetCallback("OnClick", function()
-                if self.db and self.db.profile and self.db.profile.debug and self.db.profile.debug.enabled then
-                    self:Print("DEBUG: Sync button clicked! Broadcasting group update...")
-                end
-                Grouper:SendGroupUpdateViaChannel(group)
-            end)
-            buttonGroup:AddChild(syncButton)
-        end
-    end
-
-    return frame
-end
-
--- Refresh the group list in the Browse tab based on current filters
-function Grouper:RefreshGroupList(tabType)
-    if Grouper.UpdateLDBGroupCount then Grouper:UpdateLDBGroupCount() end
-    if self.db and self.db.profile and self.db.profile.debug and self.db.profile.debug.enabled then
-        self:Print(string.rep("-", 40))
-        self:Print("DEBUG: [RefreshGroupList] called")
-        self:Print("DEBUG: [RefreshGroupList] stack trace:\n" .. debugstack(2, 10, 10))
-        self:Print("DEBUG: [RefreshGroupList] groupsScrollFrame at entry: " .. tostring(self.groupsScrollFrame) .. "\n" .. debugstack(2, 10, 10))
-    end
-    if not self.groupsScrollFrame then
-        if self.db and self.db.profile and self.db.profile.debug and self.db.profile.debug.enabled then
-            self:Print("DEBUG: [RefreshGroupList] groupsScrollFrame is nil\n" .. debugstack(2, 10, 10))
-        end
-        return
-    end
-    if self.db and self.db.profile and self.db.profile.debug and self.db.profile.debug.enabled then
-        self:Print("DEBUG: 🔄 Groups in memory:")
-        for id, group in pairs(self.groups) do
-            self:Print(string.format("DEBUG:   - %s: %s (leader: %s)", id, group.title, group.leader))
-        end
-        self:Print("DEBUG: [RefreshGroupList] about to ReleaseChildren on groupsScrollFrame: " .. tostring(self.groupsScrollFrame))
-    end
-    self.groupsScrollFrame:ReleaseChildren()
-    local filteredGroups = self:GetFilteredGroups()
-    if #filteredGroups == 0 then
-        local label = AceGUI:Create("Label")
-        label:SetText("No groups found matching your filters.")
-        label:SetFullWidth(true)
-        self.groupsScrollFrame:AddChild(label)
-        return
-    end
-    for _, group in ipairs(filteredGroups) do
-        local groupFrame
-        if tabType == "manage" then
-            groupFrame = self:CreateGroupManageFrame(group, "manage")
-        elseif tabType == "results" then
-            groupFrame = self:CreateGroupFrame(group, "results")
-        end
-        if self.db and self.db.profile and self.db.profile.debug and self.db.profile.debug.enabled then
-            self:Print("DEBUG: [RefreshGroupList] about to AddChild to groupsScrollFrame: " .. tostring(self.groupsScrollFrame))
-        end
-        if groupFrame then
-            self.groupsScrollFrame:AddChild(groupFrame)
-        end
-    end
-end
-
--- Create group frames in the results tab
-function Grouper:CreateGroupFrame(group, tabType)
-    local frame = AceGUI:Create("InlineGroup")
-    frame:SetTitle(group.title)
-    frame:SetFullWidth(true)
-    frame:SetLayout("Flow")
-
-    -- Group info
-    local infoLabel = AceGUI:Create("Label")
-    -- Show all selected dungeons (comma-separated), or blank if not a dungeon
-    local dungeonNames = {}
-    if group.dungeons and next(group.dungeons) then
-        for name, _ in pairs(group.dungeons) do
-            table.insert(dungeonNames, name)
-        end
-    elseif group.dungeonId and DUNGEONS then
-        for _, d in ipairs(DUNGEONS) do
-            if d.id == group.dungeonId then table.insert(dungeonNames, d.name) break end
-        end
-    end
-    local dungeonsText = #dungeonNames > 0 and table.concat(dungeonNames, ", ") or "-"
-    infoLabel:SetText(string.format("Type: %s | Dungeons: %s | Level: %d-%d\nMeeting Point: %s",
-        group.type, dungeonsText, group.minLevel, group.maxLevel,
-        group.location ~= "" and group.location or "Not specified"))
-    infoLabel:SetFullWidth(true)
-    frame:AddChild(infoLabel)
-
-    -- Party member fields
-    local membersGroup = AceGUI:Create("InlineGroup")
-    membersGroup:SetTitle("Party Members")
-    membersGroup:SetFullWidth(true)
-    membersGroup:SetLayout("List")
-    -- WoW class colors
-    local CLASS_COLORS = {
-        WARRIOR = "C79C6E", PALADIN = "F58CBA", HUNTER = "ABD473", ROGUE = "FFF569", PRIEST = "FFFFFF",
-        DEATHKNIGHT = "C41F3B", SHAMAN = "0070DE", MAGE = "69CCF0", WARLOCK = "9482C9", DRUID = "FF7D0A",
-        MONK = "00FF96", DEMONHUNTER = "A330C9", EVOKER = "33937F"
-    }
-    local CLASS_NAMES = { [1]="WARRIOR", [2]="PALADIN", [3]="HUNTER", [4]="ROGUE", [5]="PRIEST", [6]="DEATHKNIGHT", [7]="SHAMAN", [8]="MAGE", [9]="WARLOCK", [10]="DRUID", [11]="MONK", [12]="DEMONHUNTER", [13]="EVOKER" }
-    local RACE_NAMES = { [1]="Human", [2]="Orc", [3]="Dwarf", [4]="NightElf", [5]="Undead", [6]="Tauren", [7]="Gnome", [8]="Troll", [9]="Goblin", [10]="BloodElf", [11]="Draenei", [12]="Worgen", [13]="Pandaren" }
-    if group.type == "dungeon" then
-        -- Simple role-based slotting: tank (1), healer (2), dps (3-5), fill in order, show '?' for unknown roles
-        local function CamelCaseClass(class)
-            if not class or class == "?" then return class end
-            return class:sub(1,1):upper() .. class:sub(2):lower()
-        end
-        local tanks, healers, dps, others = {}, {}, {}, {}
-        if group.members and #group.members > 0 then
-            for _, member in ipairs(group.members) do
-                local role = member.role and string.lower(member.role) or "?"
-                if role == "tank" then
-                    table.insert(tanks, member)
-                elseif role == "healer" then
-                    table.insert(healers, member)
-                elseif role == "dps" then
-                    table.insert(dps, member)
-                else
-                    table.insert(others, member)
-                end
-            end
-        end
-        local sortedMembers = {}
-        sortedMembers[1] = tanks[1]
-        sortedMembers[2] = healers[1]
-        sortedMembers[3] = dps[1]
-        sortedMembers[4] = dps[2]
-        sortedMembers[5] = dps[3]
-        local maxSpots = 5
-        for i = 1, maxSpots do
-            local label = AceGUI:Create("Label")
-            label:SetWidth(500)
-            local member = sortedMembers[i]
-            if member then
-                local className = member.class or (member.classId and CLASS_NAMES[member.classId]) or "PRIEST"
-                className = CamelCaseClass(className)
-                local raceName = member.race or (member.raceId and RACE_NAMES[member.raceId]) or "Human"
-                local color = CLASS_COLORS[string.upper(className)] or "FFFFFF"
-                local roleText = member.role or "?"
-                label:SetText(string.format("|cff%s%s|r | %s | %s | %s | %d", color, member.name or "?", className, roleText, raceName, member.level or 0))
-            else
-                label:SetText("- Empty Slot -")
-            end
-            membersGroup:AddChild(label)
-        end
-    else
-        -- Original logic for non-dungeon types
-        local function CamelCaseClass(class)
-            if not class or class == "?" then return class end
-            return class:sub(1,1):upper() .. class:sub(2):lower()
-        end
-        if group.members and #group.members > 0 then
-            for _, member in ipairs(group.members) do
-                local label = AceGUI:Create("Label")
-                label:SetWidth(250)
-                local className = member.class or (member.classId and CLASS_NAMES[member.classId]) or "PRIEST"
-                className = CamelCaseClass(className)
-                local raceName = member.race or (member.raceId and RACE_NAMES[member.raceId]) or "Human"
-                local color = CLASS_COLORS[string.upper(className)] or "FFFFFF"
-                local roleText = member.role or "?"
-                label:SetText(string.format("|cff%s%s|r | %s | %s | %s | %d", color, member.name or "?", className, roleText, raceName, member.level or 0))
-                membersGroup:AddChild(label)
-            end
-        else
-            local label = AceGUI:Create("Label")
-            label:SetWidth(250)
-            label:SetText("No members found.")
-            membersGroup:AddChild(label)
-        end
-    end
-    frame:AddChild(membersGroup)
-
-    -- Buttons
-    local buttonGroup = AceGUI:Create("SimpleGroup")
-    buttonGroup:SetLayout("Flow")
-    buttonGroup:SetFullWidth(true)
-    frame:AddChild(buttonGroup)
-
-    if tabType == "results" then
-        local whisperButton = AceGUI:Create("Button")
-        whisperButton:SetText("Whisper Leader")
-        whisperButton:SetWidth(120)
-        whisperButton:SetCallback("OnClick", function()
-            local whisperText = "/tell " .. group.leader .. " "
-            if ChatFrame_OpenChat then
-                ChatFrame_OpenChat(whisperText)
-            elseif DEFAULT_CHAT_FRAME and DEFAULT_CHAT_FRAME.editBox then
-                local editBox = DEFAULT_CHAT_FRAME.editBox
-                if editBox then
-                    editBox:SetText(whisperText)
-                    editBox:Show()
-                    editBox:SetFocus()
-                end
-            end
-        end)
-        buttonGroup:AddChild(whisperButton)
-
-        -- Role dropdown to the right of Auto-Join button
-        local groupRoleDropdown = AceGUI:Create("Dropdown")
-        groupRoleDropdown:SetLabel("Role")
-        groupRoleDropdown:SetList({
-            tank = "Tank",
-            healer = "Healer",
-            dps = "DPS"
-        })
-        -- Restore last selected role from SV if available
-        local lastRole = self.db and self.db.profile and self.db.profile.lastRole
-        if lastRole and (lastRole == "tank" or lastRole == "healer" or lastRole == "dps") then
-            groupRoleDropdown:SetValue(lastRole)
-        else
-            groupRoleDropdown:SetValue("dps")
-        end
-        groupRoleDropdown:SetWidth(100)
-        groupRoleDropdown:SetCallback("OnValueChanged", function(widget, event, value)
-            if self.db and self.db.profile then
-                self.db.profile.lastRole = value
-            end
-            if self.db and self.db.profile and self.db.profile.debug and self.db.profile.debug.enabled then
-                self:Print("DEBUG: Group frame role set to " .. tostring(value))
-            end
-        end)
-        buttonGroup:AddChild(groupRoleDropdown)
-
-        local autoJoinButton = AceGUI:Create("Button")
-        autoJoinButton:SetText("Auto-Join")
-        autoJoinButton:SetWidth(120)
-        autoJoinButton:SetCallback("OnClick", function()
-            if self.db and self.db.profile and self.db.profile.debug and self.db.profile.debug.enabled then
-                self:Print("DEBUG: Auto-Join button clicked!")
-                self:Print(string.format("DEBUG: Group leader: %s", group.leader))
-            end
-            local playerName = UnitName("player")
-            local fullPlayerName = Grouper.GetFullPlayerName(playerName)
-            -- Set role from dropdown into cache before anything else
-            local role = groupRoleDropdown:GetValue()
-            -- Persist last selected role in SV
-            if self.db and self.db.profile then
-                self.db.profile.lastRole = role
-            end
-            -- Ensure self.playerInfo exists and update role
-            if not self.playerInfo then
-                self.playerInfo = {
-                    fullName = fullPlayerName,
-                    name = playerName,
-                    class = select(2, UnitClass("player")) or "?",
-                    race = select(2, UnitRace("player")) or "?",
-                    level = UnitLevel("player") or 0,
-                    role = role
-                }
-            else
-                self.playerInfo.role = role
-            end
-            -- Update both Name and FullName keys in self.players
-            if self.players then
-                -- Update by Name
-                if self.players[playerName] then
-                    self.players[playerName].role = role
-                    self.players[playerName].fullName = fullPlayerName
-                end
-                -- Update by FullName
-                if self.players[fullName] then
-                    self.players[fullName].role = role
-                    self.players[fullName].name = playerName
-                end
-            end
-            -- Update non-leader cache on join
-            self:HandleNonLeaderCache("join", fullPlayerName, group.id)
-            -- Ensure both keys are set after join logic
-            if self.players then
-                if self.players[playerName] then
-                    self.players[playerName].role = role
-                    self.players[playerName].fullName = fullPlayerName
-                end
-                if self.players[fullName] then
-                    self.players[fullName].role = role
-                    self.players[fullName].name = playerName
-                end
-            end
-            -- Build a string payload: "INVITE_REQUEST|requester|timestamp|race|class|level|fullName|myRole"
-            local inviteRequest = {
-                type = "INVITE_REQUEST",
-                requester = tostring(playerName),
-                timestamp = time(),
-                race = tostring(self.playerInfo.race or ""),
-                class = tostring(self.playerInfo.class or ""),
-                level = tonumber(self.playerInfo.level) or 0,
-                fullName = tostring(self.playerInfo.fullName or playerName),
-                groupId = group.id,
-                myRole = role
-            }
-            if self.db and self.db.profile and self.db.profile.debug and self.db.profile.debug.enabled then
-                self:Print("DEBUG: InviteRequest table:")
-                for k, v in pairs(inviteRequest) do
-                    self:Print("  " .. k .. "=" .. tostring(v))
-                end
-            end
-            local AceSerializer = LibStub("AceSerializer-3.0")
-            local payload = AceSerializer:Serialize(inviteRequest)
-            if self.db and self.db.profile and self.db.profile.debug and self.db.profile.debug.enabled then
-                self:Print("DEBUG: Sending invite request via AceComm to " .. group.leader)
-            end
-            -- Always normalize whisper target (remove spaces from realm)
-            self:SendComm("AUTOJOIN", payload, "WHISPER", Grouper.NormalizeFullPlayerName(group.leader))
-               -- Also refresh My Groups tab if currently selected
-               if self.tabGroup and type(self.tabGroup.GetSelectedTab) == "function" then
-                   local selectedTab = self.tabGroup:GetSelectedTab()
-                   if selectedTab == "manage" then
-                       self:RefreshGroupList("manage")
-                       -- Force full UI redraw of My Groups tab
-                       if self.mainFrame then
-                           self:ShowTab(self.mainFrame, "manage")
-                       end
-                   end
-               end
-        end)
-        buttonGroup:AddChild(autoJoinButton)
-    end
-
-    return frame
 end
 
 -- Remove group by leader name
@@ -2391,7 +1258,8 @@ function Grouper:RemoveGroupByLeader(leader)
     for _, groupId in ipairs(toRemove) do
         self.groups[groupId] = nil
     end
-    self:RefreshGroupList()
+    self:RefreshGroupListResults()
+    self:RefreshGroupListManage()
 end
 
 -- When a response is received from a party leader, clear pending removal
@@ -2399,129 +1267,6 @@ function Grouper:OnGroupLeaderResponse(leader)
     if self.pendingGroupResponses then
         self.pendingGroupResponses[leader] = nil
     end
-end
-
--- Placeholder for editing a group (not fully implemented)
-function Grouper:ShowEditGroupDialog(group)
-    -- Create a simple edit dialog using AceGUI
-    local AceGUI = LibStub("AceGUI-3.0")
-    local frame = AceGUI:Create("Frame")
-    frame:SetTitle("Edit Group")
-    frame:SetWidth(400)
-    frame:SetHeight(400)
-    frame:SetLayout("List")
-
-    -- Type
-    local typeDropdown = AceGUI:Create("Dropdown")
-    typeDropdown:SetLabel("Type")
-    typeDropdown:SetList({ dungeon = "Dungeon", quest = "Quest", other = "Other" })
-    typeDropdown:SetValue(group.type or "other")
-    typeDropdown:SetFullWidth(true)
-    frame:AddChild(typeDropdown)
-
-    -- Dungeon selection (multi-select, only if type is dungeon)
-    local selectedDungeons = {}
-    if group.dungeons then
-        for name, dungeon in pairs(group.dungeons) do
-            selectedDungeons[name] = dungeon
-        end
-    end
-    local dungeonGroup = AceGUI:Create("InlineGroup")
-    dungeonGroup:SetTitle("Select Dungeon(s)")
-    dungeonGroup:SetFullWidth(true)
-    dungeonGroup:SetLayout("Fill")
-    frame:AddChild(dungeonGroup)
-
-    local editDungeonScroll = AceGUI:Create("ScrollFrame")
-    editDungeonScroll:SetLayout("List")
-    editDungeonScroll:SetFullWidth(true)
-    editDungeonScroll:SetFullHeight(true)
-    dungeonGroup:AddChild(editDungeonScroll)
-
-    local function updateDungeonCheckboxes()
-        editDungeonScroll:ReleaseChildren()
-        if typeDropdown:GetValue() ~= "dungeon" then return end
-        if not DUNGEONS then return end
-        for _, dungeon in ipairs(DUNGEONS) do
-            if dungeon.id and dungeon.id >= 1 and dungeon.id <= 26 then
-                local checkbox = AceGUI:Create("CheckBox")
-                checkbox:SetLabel(dungeon.name)
-                checkbox:SetWidth(300)
-                checkbox:SetValue(selectedDungeons[dungeon.name] ~= nil)
-                checkbox:SetCallback("OnValueChanged", function(widget, event, value)
-                    if value then
-                        selectedDungeons[dungeon.name] = dungeon
-                    else
-                        selectedDungeons[dungeon.name] = nil
-                    end
-                end)
-                editDungeonScroll:AddChild(checkbox)
-            end
-        end
-    end
-    typeDropdown:SetCallback("OnValueChanged", function()
-        updateDungeonCheckboxes()
-    end)
-    updateDungeonCheckboxes()
-
-    -- Title
-    local titleEdit = AceGUI:Create("EditBox")
-    titleEdit:SetLabel("Title")
-    titleEdit:SetText(group.title or "")
-    titleEdit:SetFullWidth(true)
-    frame:AddChild(titleEdit)
-
-    -- Location
-    local locationEdit = AceGUI:Create("EditBox")
-    locationEdit:SetLabel("Meeting Point")
-    locationEdit:SetText(group.location or "")
-    locationEdit:SetFullWidth(true)
-    frame:AddChild(locationEdit)
-
-    -- Save button
-    local saveBtn = AceGUI:Create("Button")
-    saveBtn:SetText("Save Changes")
-    saveBtn:SetFullWidth(true)
-    saveBtn:SetCallback("OnClick", function()
-        group.title = titleEdit:GetText()
-        group.type = typeDropdown:GetValue()
-        group.location = locationEdit:GetText()
-        if typeDropdown:GetValue() == "dungeon" then
-            group.dungeons = next(selectedDungeons) and selectedDungeons or nil
-            -- Recalculate minLevel and maxLevel from selected dungeons
-            local minLevel, maxLevel
-            for _, dungeon in pairs(selectedDungeons) do
-                local dMin = dungeon.minLevel
-                local dMax = dungeon.maxLevel
-                if dungeon.bracket then
-                    dMin = dungeon.bracket.minLevel
-                    dMax = dungeon.bracket.maxLevel
-                end
-                if not minLevel or dMin < minLevel then minLevel = dMin end
-                if not maxLevel or dMax > maxLevel then maxLevel = dMax end
-            end
-            group.minLevel = minLevel
-            group.maxLevel = maxLevel
-        else
-            group.dungeons = nil
-        end
-        self:SendComm("GROUP_UPDATE", group)
-        self:Print("Group updated!")
-        frame:Release()
-        if self.tabGroup then
-            self.tabGroup:SelectTab("manage")
-        end
-    end)
-    frame:AddChild(saveBtn)
-
-    -- Cancel button
-    local cancelBtn = AceGUI:Create("Button")
-    cancelBtn:SetText("Cancel")
-    cancelBtn:SetFullWidth(true)
-    cancelBtn:SetCallback("OnClick", function()
-        frame:Release()
-    end)
-    frame:AddChild(cancelBtn)
 end
 
 -- Setup options/config
@@ -2590,5 +1335,7 @@ function Grouper:SetupOptions()
     AceConfig:RegisterOptionsTable(ADDON_NAME, options)
     AceConfigDialog:AddToBlizOptions(ADDON_NAME)
 end
+
+
 
 
