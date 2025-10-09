@@ -1097,7 +1097,9 @@ function Grouper:CreateMainWindow()
     if actuallyInChannel and not self.channelJoined then
         self.channelJoined = true -- Fix status if needed
     end
-    self.mainFrame:SetStatusText(actuallyInChannel and "Connected to Grouper channel" or "Not connected to Grouper channel")
+    -- Show addon version in the status bar 
+    local version = GetAddOnMetadata and GetAddOnMetadata("Grouper", "Version") or "?"
+    self.mainFrame:SetStatusText("Grouper Version" .. tostring(version))
     self.mainFrame:SetLayout("Fill")
     self.mainFrame:SetWidth(700)
     self.mainFrame:SetHeight(800) -- Increased from 600 to 800 for more scroll space
