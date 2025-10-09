@@ -471,7 +471,11 @@ function Grouper:CreateGroup(groupData)
             local unit = isRaid and ("raid"..i) or (i == 1 and "player" or "party"..(i-1))
             local name, realm = UnitName(unit)
             if name then
-                local fullName = realm and realm ~= "" and (name.."-"..realm) or name
+                if not realm or realm == "" then
+                    realm = GetRealmName() or ""
+                    realm = realm:gsub("%s+", "")
+                end
+                local fullName = name.."-"..realm
                 if fullName ~= leaderFullName then
                     local classLocalized, class = UnitClass(unit)
                     local raceLocalized, race = UnitRace(unit)
@@ -508,14 +512,20 @@ function Grouper:CreateGroup(groupData)
                     self.players[normFullName].role = role
                     self.players[normFullName].lastSeen = time()
                     self.players[normFullName].leader = false -- Always set to false for non-leader
+                    self.players[normFullName].groupId = group and group.id or nil -- Track group membership
                 end
             end
         end
     end
     -- For local display, use full cache data
     local members = {}
+    local leaderFullName = Grouper.GetFullPlayerName(UnitName("player"))
+    local leaderGroupId = nil
+    if self.players and self.players[leaderFullName] then
+        leaderGroupId = self.players[leaderFullName].groupId
+    end
     for playerName, playerInfo in pairs(self.players) do
-        if playerInfo and playerInfo.lastSeen then
+        if playerInfo and playerInfo.lastSeen and playerInfo.groupId and leaderGroupId and playerInfo.groupId == leaderGroupId then
             table.insert(members, {
                 name = playerInfo.fullName or playerName,
                 class = playerInfo.class or "?",

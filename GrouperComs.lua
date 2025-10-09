@@ -1650,6 +1650,7 @@ end
 
 -- Handle Auto-Join invite requests via AceComm
 function Grouper:OnAutoJoinRequest(prefix, message, distribution, sender)
+
     if self.db and self.db.profile and self.db.profile.debug and self.db.profile.debug.enabled then
         self:Print("DEBUG: [RECEIVER] OnAutoJoinRequest fired!")
         self:Print(string.format("DEBUG: [RECEIVER] prefix='%s', sender='%s', distribution='%s', message='%s'", prefix, sender, distribution, tostring(message)))
@@ -1666,6 +1667,17 @@ function Grouper:OnAutoJoinRequest(prefix, message, distribution, sender)
         self:Print("DEBUG: Deserialized inviteRequest table:")
         for k, v in pairs(inviteRequest) do
             self:Print("  " .. k .. "=" .. tostring(v))
+        end
+    end
+
+    -- Clean up stale cache entries for this player (different groupId)
+    if inviteRequest.fullName then
+        for k, v in pairs(self.players) do
+            if Grouper.NormalizeFullPlayerName(k) == Grouper.NormalizeFullPlayerName(inviteRequest.fullName)
+                and v.groupId and v.groupId ~= (inviteRequest.groupId or inviteRequest.groupID or inviteRequest.group_id)
+            then
+                self.players[k] = nil
+            end
         end
     end
 
