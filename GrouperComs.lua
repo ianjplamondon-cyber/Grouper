@@ -1710,16 +1710,16 @@ function Grouper:OnAutoJoinRequest(prefix, message, distribution, sender)
     end
     -- Cache the playerInfo
     local info = {
-        name = inviteRequest.requester,
-        race = inviteRequest.race,
-        class = inviteRequest.class,
-        level = inviteRequest.level,
-        fullName = inviteRequest.fullName,
-        lastSeen = inviteRequest.timestamp,
-        version = ADDON_VERSION,
-        groupId = inviteRequest.groupId or inviteRequest.groupID or inviteRequest.group_id or nil,
-        role = inviteRequest.myRole or inviteRequest.role or nil,
-        leader = false
+    name = inviteRequest.fullName or inviteRequest.requester,
+    race = inviteRequest.race,
+    class = inviteRequest.class,
+    level = inviteRequest.level,
+    fullName = inviteRequest.fullName or inviteRequest.requester,
+    lastSeen = inviteRequest.timestamp,
+    version = ADDON_VERSION,
+    groupId = inviteRequest.groupId or inviteRequest.groupID or inviteRequest.group_id or nil,
+    role = inviteRequest.myRole or inviteRequest.role or nil,
+    leader = false
     }
     -- Only update the canonical fullName key
     if inviteRequest.fullName then

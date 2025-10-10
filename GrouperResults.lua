@@ -193,6 +193,8 @@ function Grouper:CreateGroupFrame(group, tabType)
             end
             local playerName = UnitName("player")
             local fullPlayerName = Grouper.GetFullPlayerName(playerName)
+            local normPlayerName = Grouper.NormalizeFullPlayerName(playerName)
+            local normFullPlayerName = Grouper.NormalizeFullPlayerName(fullPlayerName)
             -- Set role from dropdown into cache before anything else
             local role = groupRoleDropdown:GetValue()
             -- Persist last selected role in SV
@@ -212,30 +214,30 @@ function Grouper:CreateGroupFrame(group, tabType)
             else
                 self.playerInfo.role = role
             end
-            -- Update both Name and FullName keys in self.players
+            -- Update both Name and FullName keys in self.players (normalized)
             if self.players then
-                -- Update by Name
-                if self.players[playerName] then
-                    self.players[playerName].role = role
-                    self.players[playerName].fullName = fullPlayerName
+                -- Update by normalized Name
+                if self.players[normPlayerName] then
+                    self.players[normPlayerName].role = role
+                    self.players[normPlayerName].fullName = normFullPlayerName
                 end
-                -- Update by FullName
-                if self.players[fullName] then
-                    self.players[fullName].role = role
-                    self.players[fullName].name = playerName
+                -- Update by normalized FullName
+                if self.players[normFullPlayerName] then
+                    self.players[normFullPlayerName].role = role
+                    self.players[normFullPlayerName].name = normPlayerName
                 end
             end
             -- Update non-leader cache on join
             self:HandleNonLeaderCache("join", fullPlayerName, group.id)
-            -- Ensure both keys are set after join logic
+            -- Ensure both normalized keys are set after join logic
             if self.players then
-                if self.players[playerName] then
-                    self.players[playerName].role = role
-                    self.players[playerName].fullName = fullPlayerName
+                if self.players[normPlayerName] then
+                    self.players[normPlayerName].role = role
+                    self.players[normPlayerName].fullName = normFullPlayerName
                 end
-                if self.players[fullName] then
-                    self.players[fullName].role = role
-                    self.players[fullName].name = playerName
+                if self.players[normFullPlayerName] then
+                    self.players[normFullPlayerName].role = role
+                    self.players[normFullPlayerName].name = normPlayerName
                 end
             end
             -- Build a string payload: "INVITE_REQUEST|requester|timestamp|race|class|level|fullName|myRole"

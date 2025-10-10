@@ -383,41 +383,43 @@ function Grouper:HandleJoinedGroupManage()
         end
         if self.players then
             local groupLeader = Grouper.NormalizeFullPlayerName(group.leader)
+            -- Normalize all keys in self.players
+            local normalizedPlayers = {}
             for playerKey, playerInfo in pairs(self.players) do
-                -- Only consider FullName keys (those containing a dash)
                 if type(playerKey) == "string" and string.find(playerKey, "-") then
                     local normKey = Grouper.NormalizeFullPlayerName(playerKey)
-                    if normKey ~= playerKey then
-                        -- Merge and remove old key
+                    if not normalizedPlayers[normKey] then
+                        normalizedPlayers[normKey] = {}
                         for field, val in pairs(playerInfo) do
-                            self.players[normKey] = self.players[normKey] or {}
-                            if self.players[normKey][field] == nil then
-                                self.players[normKey][field] = val
-                            end
+                            normalizedPlayers[normKey][field] = val
                         end
-                        self.players[playerKey] = nil
-                        playerInfo = self.players[normKey]
+                        -- Set fullName to Grouper.GetFullPlayerName to preserve original capitalization and normalized realm
+                        local origName = playerInfo.name or playerKey
+                        local origRealm = playerInfo.realm
+                        normalizedPlayers[normKey].fullName = Grouper.GetFullPlayerName(origName, origRealm)
                     end
-                    if playerInfo and playerInfo.groupId == groupId and playerInfo.lastSeen then
-                        -- Set leader attribute
-                        if normKey == groupLeader then
-                            playerInfo.leader = true
-                            leaderFound = true
-                        else
-                            playerInfo.leader = false
-                        end
-                        -- Ensure leader status is saved in cache
-                        self.players[normKey] = self.players[normKey] or {}
-                        self.players[normKey].leader = playerInfo.leader
-                        table.insert(group.members, {
-                            name = playerInfo.fullName,
-                            class = CamelCaseClass(playerInfo.class or "?"),
-                            role = CamelCaseRole(playerInfo.role or "?"),
-                            race = playerInfo.race or "?",
-                            level = playerInfo.level or "?",
-                            leader = playerInfo.leader
-                        })
+                end
+            end
+            self.players = normalizedPlayers
+
+            for normKey, playerInfo in pairs(self.players) do
+                if playerInfo and playerInfo.groupId == groupId and playerInfo.lastSeen then
+                    -- Set leader attribute
+                    if normKey == groupLeader then
+                        playerInfo.leader = true
+                        leaderFound = true
+                    else
+                        playerInfo.leader = false
                     end
+                    self.players[normKey].leader = playerInfo.leader
+                    table.insert(group.members, {
+                        name = playerInfo.fullName,
+                        class = CamelCaseClass(playerInfo.class or "?"),
+                        role = CamelCaseRole(playerInfo.role or "?"),
+                        race = playerInfo.race or "?",
+                        level = playerInfo.level or "?",
+                        leader = playerInfo.leader
+                    })
                 end
             end
             -- If leader not found in self.players, add them explicitly
@@ -427,13 +429,16 @@ function Grouper:HandleJoinedGroupManage()
                 if not leaderInfo then
                     for k, info in pairs(self.players) do
                         if Grouper.NormalizeFullPlayerName(k) == normLeader then
-                            -- Merge and remove old key
+                            self.players[normLeader] = self.players[normLeader] or {}
                             for field, val in pairs(info) do
-                                self.players[normLeader] = self.players[normLeader] or {}
                                 if self.players[normLeader][field] == nil then
                                     self.players[normLeader][field] = val
                                 end
                             end
+                            -- Set fullName to Grouper.GetFullPlayerName to preserve original capitalization and normalized realm
+                            local origName = info.name or k
+                            local origRealm = info.realm
+                            self.players[normLeader].fullName = Grouper.GetFullPlayerName(origName, origRealm)
                             self.players[k] = nil
                             leaderInfo = self.players[normLeader]
                             break
@@ -441,11 +446,10 @@ function Grouper:HandleJoinedGroupManage()
                     end
                 end
                 local myRole = leaderInfo and leaderInfo.role or "?"
-                -- Ensure leader status is saved in cache
                 self.players[normLeader] = self.players[normLeader] or {}
                 self.players[normLeader].leader = true
                 table.insert(group.members, {
-                    name = groupLeader,
+                    name = normLeader,
                     class = CamelCaseClass(leaderInfo and leaderInfo.class or UnitClass("player") or "?"),
                     role = CamelCaseRole(myRole or "?"),
                     race = leaderInfo and leaderInfo.race or UnitRace("player") or "?",

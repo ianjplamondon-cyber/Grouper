@@ -440,20 +440,25 @@ function Grouper:CreateGroup(groupData)
     local playerFullName = Grouper.GetFullPlayerName(UnitName("player"))
     local role = groupData.myRole
     if self.players then
+        -- Normalize all keys in self.players
+        local normalizedPlayers = {}
         for cacheName, info in pairs(self.players) do
-            if cacheName == playerFullName or info.fullName == playerFullName then
-                info.groupId = nil -- Clear any previous groupId
-                info.groupId = self:GenerateGroupID() -- Will be overwritten below, but ensures it's set
-                -- Ensure name and fullName are set for player.self
-                local name, realm = UnitName("player")
-                info.name = playerFullName -- Always use full name with realm (with spaces)
-                info.fullName = playerFullName
-                if role then
-                    info.role = role
-                    self.playerInfo = info
-                    self.playerInfo.role = role
-                end
-            end
+            local normKey = Grouper.NormalizeFullPlayerName(cacheName)
+            normalizedPlayers[normKey] = info
+        end
+        self.players = normalizedPlayers
+        -- Now update the local player's entry
+        local normPlayerFullName = Grouper.NormalizeFullPlayerName(playerFullName)
+        self.players[normPlayerFullName] = self.players[normPlayerFullName] or {}
+        local name, realm = UnitName("player")
+    self.players[normPlayerFullName].name = Grouper.GetFullPlayerName(name, realm)
+    self.players[normPlayerFullName].realm = realm
+    self.players[normPlayerFullName].fullName = Grouper.GetFullPlayerName(name, realm)
+        self.players[normPlayerFullName].groupId = self:GenerateGroupID() -- Will be overwritten below, but ensures it's set
+        if role then
+            self.players[normPlayerFullName].role = role
+            self.playerInfo = self.players[normPlayerFullName]
+            self.playerInfo.role = role
         end
     end
     -- Update self.players cache with live party/raid data for non-leader members only
@@ -475,7 +480,7 @@ function Grouper:CreateGroup(groupData)
                     realm = GetRealmName() or ""
                     realm = realm:gsub("%s+", "")
                 end
-                local fullName = name.."-"..realm
+                local fullName = Grouper.GetFullPlayerName(name, realm)
                 if fullName ~= leaderFullName then
                     local classLocalized, class = UnitClass(unit)
                     local raceLocalized, race = UnitRace(unit)
@@ -492,19 +497,9 @@ function Grouper:CreateGroup(groupData)
                         role = "?"
                     end
                     local normFullName = Grouper.NormalizeFullPlayerName(fullName)
-                    -- Merge: If a non-normalized version exists, update and remove it
-                    for k, v in pairs(self.players) do
-                        if Grouper.NormalizeFullPlayerName(k) == normFullName and k ~= normFullName then
-                            for field, val in pairs(v) do
-                                self.players[normFullName] = self.players[normFullName] or {}
-                                if self.players[normFullName][field] == nil then
-                                    self.players[normFullName][field] = val
-                                end
-                            end
-                            self.players[k] = nil
-                        end
-                    end
-                    if not self.players[normFullName] then self.players[normFullName] = {} end
+                    self.players[normFullName] = self.players[normFullName] or {}
+                    self.players[normFullName].name = fullName
+                    self.players[normFullName].realm = realm
                     self.players[normFullName].fullName = fullName
                     self.players[normFullName].class = class or classLocalized or "?"
                     self.players[normFullName].race = race or raceLocalized or "?"
@@ -524,16 +519,17 @@ function Grouper:CreateGroup(groupData)
                         self.playerInfo.lastSeen = self.players[normFullName].lastSeen
                         self.playerInfo.leader = self.players[normFullName].leader
                         self.playerInfo.groupId = self.players[normFullName].groupId
-
-                        -- Immediately refresh the manage tab UI after syncing
-                        if self.mainFrame and self.mainFrame:IsShown() and self.tabGroup then
-                            self.tabGroup:SelectTab("manage")
-                        end
                     end
                 end
             end
         end
     end
+    
+    -- Immediately refresh the manage tab UI after syncing all cache updates
+    if self.mainFrame and self.mainFrame:IsShown() and self.tabGroup then
+        self.tabGroup:SelectTab("manage")
+    end
+    
     -- For local display, use full cache data
     local members = {}
     local leaderFullName = Grouper.GetFullPlayerName(UnitName("player"))
@@ -543,8 +539,13 @@ function Grouper:CreateGroup(groupData)
     end
     for playerName, playerInfo in pairs(self.players) do
         if playerInfo and playerInfo.lastSeen and playerInfo.groupId and leaderGroupId and playerInfo.groupId == leaderGroupId then
+            -- Always use the correct full name for each member (not just the leader's realm)
+            local memberFullName = playerInfo.fullName
+            if not memberFullName and playerInfo.name and playerInfo.realm then
+                memberFullName = Grouper.GetFullPlayerName(playerInfo.name, playerInfo.realm)
+            end
             table.insert(members, {
-                name = playerInfo.fullName or playerName,
+                name = memberFullName or playerName,
                 class = playerInfo.class or "?",
                 race = playerInfo.race or "?",
                 level = playerInfo.level or "?",
@@ -831,7 +832,8 @@ function Grouper:HandleGroupUpdate(groupData, sender)
                     end
                 end
                 if not self.players[normFullName] then self.players[normFullName] = {} end
-                self.players[normFullName].fullName = fullName
+                -- Set fullName to Grouper.GetFullPlayerName to preserve original capitalization and normalized realm
+                self.players[normFullName].fullName = Grouper.GetFullPlayerName(fullName)
                 self.players[normFullName].class = m.class or m.classId or "?"
                 -- Decode raceId to race name if needed
                 if m.race and type(m.race) == "number" then
