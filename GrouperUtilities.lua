@@ -1,3 +1,77 @@
+-- AceGUI popup for assigning roles to group members after importing a WoW group
+function Grouper:ShowRoleAssignmentPopup(members, onConfirm)
+    local AceGUI = LibStub("AceGUI-3.0")
+    local frame = AceGUI:Create("Frame")
+    frame:SetTitle("Assign Roles to Group Members")
+    frame:SetWidth(400)
+    frame:SetHeight(60 + 40 * #members)
+    frame:SetLayout("List")
+    frame:EnableResize(false)
+    frame:SetCallback("OnClose", function(widget) AceGUI:Release(widget) end)
+
+    local roleOptions = {
+        ["None"] = "None",
+        ["tank"] = "Tank",
+        ["healer"] = "Healer",
+        ["dps"] = "DPS"
+    }
+    local roleSelections = {}
+
+    for i, member in ipairs(members) do
+        local group = AceGUI:Create("SimpleGroup")
+        group:SetFullWidth(true)
+        group:SetLayout("Flow")
+
+        local fullName = Grouper.GetFullPlayerName(member.name)
+        local label = AceGUI:Create("Label")
+        label:SetText(string.format("%s (%s %s %s)", fullName, member.class or "?", member.race or "?", member.level or "?"))
+        label:SetWidth(180)
+        group:AddChild(label)
+
+        local dropdown = AceGUI:Create("Dropdown")
+        dropdown:SetList(roleOptions)
+        dropdown:SetValue("None")
+        dropdown:SetWidth(100)
+        dropdown:SetCallback("OnValueChanged", function(widget, event, key)
+            roleSelections[fullName] = key
+        end)
+        group:AddChild(dropdown)
+
+        frame:AddChild(group)
+        roleSelections[fullName] = "None"
+    end
+
+    local confirmBtn = AceGUI:Create("Button")
+    confirmBtn:SetText("Assign Roles and Continue")
+    confirmBtn:SetFullWidth(true)
+    confirmBtn:SetCallback("OnClick", function()
+        if onConfirm then
+            onConfirm(roleSelections)
+        end
+        frame:Hide()
+    end)
+    frame:AddChild(confirmBtn)
+end
+-- Helper to build self.players cache from a list of names, ensuring both name and fullName use Grouper.GetFullPlayerName
+-- members: array of { name = <baseName>, isLeader = true/false }
+function Grouper:BuildPlayersCacheFromNames(members)
+    for _, member in ipairs(members) do
+        local fullName = Grouper.GetFullPlayerName(member.name)
+        self.players[fullName] = self.players[fullName] or {}
+        self.players[fullName].name = fullName
+        self.players[fullName].fullName = fullName
+        self.players[fullName].leader = member.isLeader or false
+        self.players[fullName].role = nil -- roles assigned later
+        self.players[fullName].class = member.class or "?"
+        self.players[fullName].race = member.race or "?"
+        self.players[fullName].level = member.level or "?"
+        self.players[fullName].lastSeen = time()
+        -- Optionally sync to self.playerInfo if this is the local player
+        if member.isLeader and fullName == Grouper.GetFullPlayerName(UnitName("player")) then
+            self.playerInfo = self.players[fullName]
+        end
+    end
+end
 -- /grouperldbdump: Print the current LDB text value for live inspection
 SLASH_GROUPERLDBDUMP1 = "/grouperldbdump"
 SlashCmdList["GROUPERLDBDUMP"] = function()

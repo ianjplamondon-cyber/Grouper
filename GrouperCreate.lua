@@ -174,6 +174,7 @@ function Grouper:CreateCreateTab(container)
         end
     end
     
+    --[[
     -- Update dungeon list when type dropdown changes
     typeDropdown:SetCallback("OnValueChanged", function(widget, event, value)
         -- Set appropriate level defaults based on type
@@ -192,7 +193,7 @@ function Grouper:CreateCreateTab(container)
         end
         updateDungeonList()
     end)
-    
+    ]]
     -- Initialize dungeon list
     updateDungeonList()
     --[[

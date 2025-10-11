@@ -416,6 +416,8 @@ function Grouper:CreateGroup(groupData)
             return nil
         end
     end
+    -- Check if player is already in a WoW group using the WoW API
+    local inWoWGroup = IsInGroup and IsInGroup()
     -- Encode type as number if not already encoded: 1=Dungeon, 2=Raid, 3=Quest, 4=PvP, 5=Other
     local typeId = groupData.typeId
     if not typeId then
@@ -436,29 +438,74 @@ function Grouper:CreateGroup(groupData)
     local function ShortName(fullName)
         return fullName:match("^([^-]+)") or fullName
     end
-    -- First, update leader's cache entry with role from dropdown
     local playerFullName = Grouper.GetFullPlayerName(UnitName("player"))
     local role = groupData.myRole
-    if self.players then
-        -- Normalize all keys in self.players
-        local normalizedPlayers = {}
-        for cacheName, info in pairs(self.players) do
-            local normKey = Grouper.NormalizeFullPlayerName(cacheName)
-            normalizedPlayers[normKey] = info
+    if inWoWGroup then
+        -- Build member list from WoW group
+        local members = {}
+        local numGroupMembers = GetNumGroupMembers and GetNumGroupMembers() or 0
+        local isRaid = IsInRaid and IsInRaid()
+        for i = 1, numGroupMembers do
+            local unit = isRaid and ("raid"..i) or (i == 1 and "player" or "party"..(i-1))
+            local name, realm = UnitName(unit)
+            if name then
+                if not realm or realm == "" then
+                    realm = GetRealmName() or ""
+                    realm = realm:gsub("%s+", "")
+                end
+                local isLeader = (Grouper.GetFullPlayerName(name, realm) == playerFullName)
+                local classLocalized, class = UnitClass(unit)
+                local raceLocalized, race = UnitRace(unit)
+                local level = UnitLevel(unit)
+                table.insert(members, {
+                    name = name,
+                    isLeader = isLeader,
+                    class = class or classLocalized or "?",
+                    race = race or raceLocalized or "?",
+                    level = level or "?"
+                })
+            end
         end
-        self.players = normalizedPlayers
-        -- Now update the local player's entry
-        local normPlayerFullName = Grouper.NormalizeFullPlayerName(playerFullName)
-        self.players[normPlayerFullName] = self.players[normPlayerFullName] or {}
-        local name, realm = UnitName("player")
-    self.players[normPlayerFullName].name = Grouper.GetFullPlayerName(name, realm)
-    self.players[normPlayerFullName].realm = realm
-    self.players[normPlayerFullName].fullName = Grouper.GetFullPlayerName(name, realm)
-        self.players[normPlayerFullName].groupId = self:GenerateGroupID() -- Will be overwritten below, but ensures it's set
-        if role then
-            self.players[normPlayerFullName].role = role
-            self.playerInfo = self.players[normPlayerFullName]
-            self.playerInfo.role = role
+        self:BuildPlayersCacheFromNames(members)
+        -- Show popup for role assignment
+        self:ShowRoleAssignmentPopup(members, function(roleSelections)
+            for _, member in ipairs(members) do
+                local fullName = Grouper.GetFullPlayerName(member.name)
+                local selectedRole = roleSelections[fullName]
+                if selectedRole and selectedRole ~= "None" then
+                    self.players[fullName].role = selectedRole
+                    if fullName == playerFullName then
+                        self.playerInfo = self.players[fullName]
+                        self.playerInfo.role = selectedRole
+                    end
+                end
+            end
+            -- Continue with group creation logic here if needed
+        end)
+        return -- Wait for popup confirmation before proceeding
+    else
+        -- Solo/normal creation path (existing logic, but ensure normalization)
+        if self.players then
+            -- Normalize all keys in self.players
+            local normalizedPlayers = {}
+            for cacheName, info in pairs(self.players) do
+                local normKey = Grouper.NormalizeFullPlayerName(cacheName)
+                normalizedPlayers[normKey] = info
+            end
+            self.players = normalizedPlayers
+            -- Now update the local player's entry
+            local normPlayerFullName = Grouper.NormalizeFullPlayerName(playerFullName)
+            self.players[normPlayerFullName] = self.players[normPlayerFullName] or {}
+            local name, realm = UnitName("player")
+            self.players[normPlayerFullName].name = Grouper.GetFullPlayerName(name, realm)
+            self.players[normPlayerFullName].realm = realm
+            self.players[normPlayerFullName].fullName = Grouper.GetFullPlayerName(name, realm)
+            self.players[normPlayerFullName].groupId = self:GenerateGroupID() -- Will be overwritten below, but ensures it's set
+            if role then
+                self.players[normPlayerFullName].role = role
+                self.playerInfo = self.players[normPlayerFullName]
+                self.playerInfo.role = role
+            end
         end
     end
     -- Update self.players cache with live party/raid data for non-leader members only
