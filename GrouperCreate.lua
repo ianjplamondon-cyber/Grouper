@@ -12,6 +12,7 @@ function Grouper:CreateCreateTab(container)
     titleEdit:SetFullWidth(true)
     titleEdit:SetMaxLetters(20)
     titleEdit:SetText("")
+    if titleEdit.DisableButton then titleEdit:DisableButton(true) end
     scrollFrame:AddChild(titleEdit)
     
     -- Event type dropdown (encoded as numbers when sent)
@@ -221,6 +222,7 @@ function Grouper:CreateCreateTab(container)
     locationEdit:SetFullWidth(true)
     locationEdit:SetMaxLetters(20)
     locationEdit:SetText("")
+    if locationEdit.DisableButton then locationEdit:DisableButton(true) end
     scrollFrame:AddChild(locationEdit)
     
     -- My role dropdown
