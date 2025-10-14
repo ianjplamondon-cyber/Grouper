@@ -493,7 +493,7 @@ function Grouper:CreateGroup(groupData)
             -- Normalize all keys in self.players
             local normalizedPlayers = {}
             for cacheName, info in pairs(self.players) do
-                local normKey = Grouper.NormalizeFullPlayerName(cacheName)
+                local normKey = Grouper.GetFullPlayerName(cacheName)
                 normalizedPlayers[normKey] = info
             end
             self.players = normalizedPlayers

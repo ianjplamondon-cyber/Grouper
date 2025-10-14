@@ -322,7 +322,7 @@ function Grouper:OnInitialize()
         local race = UnitRace("player")
         local level = UnitLevel("player")
         local realm = GetRealmName() or ""
-        local fullName = name .. "-" .. realm
+        local fullName = Grouper.GetFullPlayerName(name, realm)
         local lastRole = self.db and self.db.profile and self.db.profile.lastRole
         -- Only update role if entry exists, do not create duplicate
         local info = self.players[fullName]
@@ -333,7 +333,7 @@ function Grouper:OnInitialize()
             self.playerInfo = info
         else
             local newInfo = {
-                name = fullName, -- Always use full name (with realm) for consistency
+                name = fullName, -- Always use normalized full name (with realm, no spaces)
                 class = class,
                 race = race,
                 level = level,
