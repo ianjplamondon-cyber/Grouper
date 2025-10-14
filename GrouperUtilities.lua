@@ -56,6 +56,9 @@ end
 -- members: array of { name = <baseName>, isLeader = true/false }
 function Grouper:BuildPlayersCacheFromNames(members)
     for _, member in ipairs(members) do
+        if self.db and self.db.profile and self.db.profile.debug and self.db.profile.debug.enabled then
+            self:Print(string.format("DEBUG: [BuildPlayersCacheFromNames] WoW API response: name=%s, realm=%s, class=%s, level=%s, isLeader=%s", tostring(member.name), tostring(member.realm), tostring(member.class), tostring(member.level), tostring(member.isLeader)))
+        end
         local name, realm = member.name, member.realm
         -- If member.name already contains a realm, GetFullPlayerName will handle it
         local fullName = Grouper.GetFullPlayerName(name, realm)

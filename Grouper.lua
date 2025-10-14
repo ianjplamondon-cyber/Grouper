@@ -706,6 +706,16 @@ end
 
 -- Internal helper to finalize group creation after role assignment popup
 function Grouper:FinalizeGroupCreation(groupData)
+    if self.db and self.db.profile and self.db.profile.debug and self.db.profile.debug.enabled then
+        self:Print("DEBUG: [FinalizeGroupCreation] Starting group creation for title: " .. tostring(groupData.title))
+        self:Print("DEBUG: [FinalizeGroupCreation] Members to add:")
+        for i, member in ipairs(groupData.members or {}) do
+            self:Print(string.format("  %d: name=%s, realm=%s, class=%s, role=%s, leader=%s", i, tostring(member.name), tostring(member.realm), tostring(member.class), tostring(member.role), tostring(member.leader)))
+        end
+    end
+    if self.db and self.db.profile and self.db.profile.debug and self.db.profile.debug.enabled then
+        self:Print("DEBUG: [FinalizeGroupCreation] Populating self.players cache:")
+    end
     -- This logic is similar to the normal solo/creation path, but skips WoW import
     local playerFullName = Grouper.GetFullPlayerName(UnitName("player"))
     -- Remove any existing group for this player
@@ -745,12 +755,15 @@ function Grouper:FinalizeGroupCreation(groupData)
         info.race = member.race or "?"
         info.level = member.level or "?"
         info.role = member.role or "?"
-        info.leader = member.leader or false
+        info.leader = (member.leader == true or member.leader == "yes") and "yes" or "no"
         info.groupId = groupId
         info.groupType = groupData.type or "dungeon"
         info.minLevel = groupData.minLevel
         info.maxLevel = groupData.maxLevel
         info.comment = groupData.comment
+        if self.db and self.db.profile and self.db.profile.debug and self.db.profile.debug.enabled then
+            self:Print(string.format("  -> self.players[%s]: class=%s, role=%s, leader=%s, groupId=%s", tostring(key), tostring(info.class), tostring(info.role), tostring(info.leader), tostring(info.groupId)))
+        end
         -- Sync to self.playerInfo if this is the local player
         if Grouper.NormalizeFullPlayerName(key) == Grouper.NormalizeFullPlayerName(self.localPlayerFullName) then
             for field, value in pairs(info) do
@@ -763,8 +776,15 @@ function Grouper:FinalizeGroupCreation(groupData)
             race = info.race or "?",
             level = info.level or "?",
             role = info.role or "?",
-            leader = info.leader or false
+            leader = (key == playerFullName) and "yes" or "no"
         })
+    if self.db and self.db.profile and self.db.profile.debug and self.db.profile.debug.enabled then
+        self:Print("DEBUG: [FinalizeGroupCreation] Final group.members table:")
+        for i, m in ipairs(group.members) do
+            self:Print(string.format("  %d: name=%s, class=%s, role=%s, leader=%s", i, tostring(m.name), tostring(m.class), tostring(m.role), tostring(m.leader)))
+        end
+        self:Print("DEBUG: [FinalizeGroupCreation] self.groups updated with new groupId: " .. tostring(groupId))
+    end
     end
     self.groups = self.groups or {}
     self.groups[groupId] = group
