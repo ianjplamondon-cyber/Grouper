@@ -3,15 +3,11 @@ function Grouper:ShowRoleAssignmentPopup(members, onConfirm)
     local AceGUI = LibStub("AceGUI-3.0")
     local frame = AceGUI:Create("Frame")
     frame:SetTitle("Assign Roles to Group Members")
-    frame:SetWidth(400)
-    frame:SetHeight(60 + 40 * #members)
+    frame:SetWidth(400 * 1.25) 
+    frame:SetHeight((60 + 40 * #members) * 1.2) 
     frame:SetLayout("List")
     frame:EnableResize(false)
     frame:SetCallback("OnClose", function(widget) AceGUI:Release(widget) end)
-    -- Remove any default children (such as an empty EditBox) that AceGUI Frame may add
-    while #frame.children > 0 do
-        frame:RemoveChild(frame.children[1])
-    end
 
     local roleOptions = {
         ["None"] = "None",
@@ -29,7 +25,7 @@ function Grouper:ShowRoleAssignmentPopup(members, onConfirm)
         local fullName = Grouper.GetFullPlayerName(member.name)
         local label = AceGUI:Create("Label")
         label:SetText(string.format("%s (%s %s %s)", fullName, member.class or "?", member.race or "?", member.level or "?"))
-        label:SetWidth(180)
+        label:SetWidth(365)
         group:AddChild(label)
 
         local dropdown = AceGUI:Create("Dropdown")
