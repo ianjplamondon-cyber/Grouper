@@ -458,12 +458,16 @@ function Grouper:CreateGroup(groupData)
                 local raceLocalized, race = UnitRace(unit)
                 -- Normalize Scourge to Undead for display and cache
                 local normRace = (race == "Scourge" or raceLocalized == "Scourge") and "Undead" or (race or raceLocalized or "?")
+                local function TitleCase(str)
+                    if not str then return str end
+                    return str:sub(1,1):upper() .. str:sub(2):lower()
+                end
                 local level = UnitLevel(unit)
                 table.insert(members, {
                     name = name,
                     isLeader = isLeader,
-                    class = class or classLocalized or "?",
-                    race = normRace,
+                    class = TitleCase(class or classLocalized or "?"),
+                    race = TitleCase(normRace),
                     level = level or "?"
                 })
             end

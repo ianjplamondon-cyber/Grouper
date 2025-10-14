@@ -318,8 +318,12 @@ function Grouper:OnInitialize()
     self.playerInfo = {}
     if UnitName and UnitClass and UnitRace and UnitLevel and GetRealmName then
         local name = UnitName("player")
-        local class = UnitClass("player")
-        local race = UnitRace("player")
+        local function TitleCase(str)
+            if not str then return str end
+            return str:sub(1,1):upper() .. str:sub(2):lower()
+        end
+        local class = TitleCase(UnitClass("player"))
+        local race = TitleCase(UnitRace("player"))
         local level = UnitLevel("player")
         local realm = GetRealmName() or ""
         local fullName = Grouper.GetFullPlayerName(name, realm)
