@@ -1199,10 +1199,14 @@ function Grouper:GetFilteredGroups()
         end
         -- ...existing code...
         -- Level filter
-        if include and (group.minLevel > filters.maxLevel or group.maxLevel < filters.minLevel) then
+        local groupMin = group.minLevel or 0
+        local groupMax = group.maxLevel or 60
+        local filterMin = filters.minLevel or 0
+        local filterMax = filters.maxLevel or 60
+        if include and (groupMin > filterMax or groupMax < filterMin) then
             include = false
             reason = string.format("level mismatch (group: %d-%d, filter: %d-%d)", 
-                group.minLevel or 0, group.maxLevel or 60, filters.minLevel, filters.maxLevel)
+                groupMin, groupMax, filterMin, filterMax)
         end
         -- Type filter
         if include and not filters.dungeonTypes[group.type] then
