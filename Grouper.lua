@@ -456,18 +456,21 @@ function Grouper:CreateGroup(groupData)
                 local isLeader = (Grouper.GetFullPlayerName(name, realm) == playerFullName)
                 local classLocalized, class = UnitClass(unit)
                 local raceLocalized, race = UnitRace(unit)
+                -- Normalize Scourge to Undead for display and cache
+                local normRace = (race == "Scourge" or raceLocalized == "Scourge") and "Undead" or (race or raceLocalized or "?")
                 local level = UnitLevel(unit)
                 table.insert(members, {
                     name = name,
                     isLeader = isLeader,
                     class = class or classLocalized or "?",
-                    race = race or raceLocalized or "?",
+                    race = normRace,
                     level = level or "?"
                 })
             end
         end
         self:BuildPlayersCacheFromNames(members)
         -- Show popup for role assignment
+        local groupDataCopy = groupData -- capture for closure
         self:ShowRoleAssignmentPopup(members, function(roleSelections)
             for _, member in ipairs(members) do
                 local fullName = Grouper.GetFullPlayerName(member.name)
@@ -480,7 +483,8 @@ function Grouper:CreateGroup(groupData)
                     end
                 end
             end
-            -- Continue with group creation logic here if needed
+            -- Actually create the group after roles are assigned
+            self:CreateGroup(groupDataCopy)
         end)
         return -- Wait for popup confirmation before proceeding
     else
