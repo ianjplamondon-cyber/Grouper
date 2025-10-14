@@ -8,6 +8,10 @@ function Grouper:ShowRoleAssignmentPopup(members, onConfirm)
     frame:SetLayout("List")
     frame:EnableResize(false)
     frame:SetCallback("OnClose", function(widget) AceGUI:Release(widget) end)
+    -- Remove any default children (such as an empty EditBox) that AceGUI Frame may add
+    while #frame.children > 0 do
+        frame:RemoveChild(frame.children[1])
+    end
 
     local roleOptions = {
         ["None"] = "None",
@@ -56,7 +60,9 @@ end
 -- members: array of { name = <baseName>, isLeader = true/false }
 function Grouper:BuildPlayersCacheFromNames(members)
     for _, member in ipairs(members) do
-        local fullName = Grouper.GetFullPlayerName(member.name)
+        local name, realm = member.name, member.realm
+        -- If member.name already contains a realm, GetFullPlayerName will handle it
+        local fullName = Grouper.GetFullPlayerName(name, realm)
         self.players[fullName] = self.players[fullName] or {}
         self.players[fullName].name = fullName
         self.players[fullName].fullName = fullName

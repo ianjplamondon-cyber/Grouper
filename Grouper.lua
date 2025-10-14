@@ -453,7 +453,8 @@ function Grouper:CreateGroup(groupData)
                     realm = GetRealmName() or ""
                     realm = realm:gsub("%s+", "")
                 end
-                local isLeader = (Grouper.GetFullPlayerName(name, realm) == playerFullName)
+                local fullName = Grouper.GetFullPlayerName(name, realm)
+                local isLeader = (fullName == playerFullName)
                 local classLocalized, class = UnitClass(unit)
                 local raceLocalized, race = UnitRace(unit)
                 -- Normalize Scourge to Undead for display and cache
@@ -464,7 +465,7 @@ function Grouper:CreateGroup(groupData)
                 end
                 local level = UnitLevel(unit)
                 table.insert(members, {
-                    name = name,
+                    name = fullName,
                     isLeader = isLeader,
                     class = TitleCase(class or classLocalized or "?"),
                     race = TitleCase(normRace),
@@ -477,20 +478,24 @@ function Grouper:CreateGroup(groupData)
         local groupDataCopy = groupData -- capture for closure
         self:ShowRoleAssignmentPopup(members, function(roleSelections)
             for _, member in ipairs(members) do
-                local fullName = Grouper.GetFullPlayerName(member.name)
+                local fullName = Grouper.GetFullPlayerName(member.name, member.realm)
                 local selectedRole = roleSelections[fullName]
                 if selectedRole and selectedRole ~= "None" then
                     self.players[fullName].role = selectedRole
+                    member.role = selectedRole -- Ensure the members array is updated too
                     if fullName == playerFullName then
                         self.playerInfo = self.players[fullName]
                         self.playerInfo.role = selectedRole
                     end
                 end
             end
-            -- Actually create the group after roles are assigned
-            self:CreateGroup(groupDataCopy)
+            -- Assign members to groupDataCopy so FinalizeGroupCreation can process them
+            groupDataCopy.members = members
+            -- Actually create the group after roles are assigned, bypassing WoW import logic
+            Grouper:FinalizeGroupCreation(groupDataCopy)
         end)
         return -- Wait for popup confirmation before proceeding
+
     else
         -- Solo/normal creation path (existing logic, but ensure normalization)
         if self.players then
@@ -697,6 +702,83 @@ function Grouper:CreateGroup(groupData)
     end
     if Grouper.UpdateLDBGroupCount then Grouper:UpdateLDBGroupCount() end
     return group
+end
+
+-- Internal helper to finalize group creation after role assignment popup
+function Grouper:FinalizeGroupCreation(groupData)
+    -- This logic is similar to the normal solo/creation path, but skips WoW import
+    local playerFullName = Grouper.GetFullPlayerName(UnitName("player"))
+    -- Remove any existing group for this player
+    for groupId, group in pairs(self.groups or {}) do
+        if Grouper.NormalizeFullPlayerName(group.leader) == Grouper.NormalizeFullPlayerName(playerFullName) then
+            self.groups[groupId] = nil
+        end
+    end
+    -- Generate a new groupId
+    local groupId = self:GenerateGroupID()
+    local now = time()
+    local group = {
+        id = groupId,
+        title = groupData.title,
+        leader = playerFullName,
+        type = groupData.type or "dungeon",
+        typeId = groupData.typeId,
+        minLevel = groupData.minLevel,
+        maxLevel = groupData.maxLevel,
+        location = groupData.location,
+        dungeons = groupData.dungeons,
+        members = {},
+        created = now,
+        lastUpdated = now,
+        timestamp = now,
+    }
+    -- Only add/update the intended members from groupData.members
+    for _, member in ipairs(groupData.members or {}) do
+        local key = Grouper.GetFullPlayerName(member.name, member.realm)
+        if not self.players[key] then
+            self.players[key] = {}
+        end
+        local info = self.players[key]
+        info.fullName = Grouper.GetFullPlayerName(member.name, member.realm)
+        info.name = Grouper.GetFullPlayerName(member.name, member.realm)
+        info.class = member.class or "?"
+        info.race = member.race or "?"
+        info.level = member.level or "?"
+        info.role = member.role or "?"
+        info.leader = member.leader or false
+        info.groupId = groupId
+        info.groupType = groupData.type or "dungeon"
+        info.minLevel = groupData.minLevel
+        info.maxLevel = groupData.maxLevel
+        info.comment = groupData.comment
+        -- Sync to self.playerInfo if this is the local player
+        if Grouper.NormalizeFullPlayerName(key) == Grouper.NormalizeFullPlayerName(self.localPlayerFullName) then
+            for field, value in pairs(info) do
+                self.playerInfo[field] = value
+            end
+        end
+        table.insert(group.members, {
+            name = info.fullName or key,
+            class = info.class or "?",
+            race = info.race or "?",
+            level = info.level or "?",
+            role = info.role or "?",
+            leader = info.leader or false
+        })
+    end
+    self.groups = self.groups or {}
+    self.groups[groupId] = group
+    -- Set local player's groupId and leader flag
+    if self.playerInfo then
+        self.playerInfo.groupId = groupId
+        self.playerInfo.leader = true
+    end
+    -- UI refresh
+    if self.mainFrame and self.mainFrame:IsShown() and self.tabGroup then
+        self:RefreshGroupListManage()
+        self:RefreshGroupListResults()
+    end
+    self:Print("Group created: " .. (group.title or "(no title)"))
 end
 
 -- Update group details (only leader can update)
