@@ -165,7 +165,7 @@ function Grouper:CreateGroupManageFrame(group, tabType)
                     end
                     local crown = AceGUI:Create("Icon")
                     crown:SetImage("Interface\\GroupFrame\\UI-Group-LeaderIcon")
-                    crown:SetImageSize(8, 8) 
+                    crown:SetImageSize(16, 16)
                     rowGroup:AddChild(crown)
                 end
             else
@@ -201,7 +201,7 @@ function Grouper:CreateGroupManageFrame(group, tabType)
                     end
                     local crown = AceGUI:Create("Icon")
                     crown:SetImage("Interface\\GroupFrame\\UI-Group-LeaderIcon")
-                    crown:SetImageSize(32, 32) -- Increased size for visibility
+                    crown:SetImageSize(16, 16)
                     rowGroup:AddChild(crown)
                 end
                 membersGroup:AddChild(rowGroup)

@@ -55,9 +55,17 @@ end
 -- Helper to build self.players cache from a list of names, ensuring both name and fullName use Grouper.GetFullPlayerName
 -- members: array of { name = <baseName>, isLeader = true/false }
 function Grouper:BuildPlayersCacheFromNames(members)
-    for _, member in ipairs(members) do
+    for i, member in ipairs(members) do
+        -- Attempt to get the true WoW API output if possible
+        local apiName, apiRealm = nil, nil
+        if member.unit then
+            apiName, apiRealm = UnitName(member.unit)
+            if self.db and self.db.profile and self.db.profile.debug and self.db.profile.debug.enabled then
+                self:Print(string.format("DEBUG: [BuildPlayersCacheFromNames] Raw WoW API UnitName('%s'): name=%s, realm=%s", tostring(member.unit), tostring(apiName), tostring(apiRealm)))
+            end
+        end
         if self.db and self.db.profile and self.db.profile.debug and self.db.profile.debug.enabled then
-            self:Print(string.format("DEBUG: [BuildPlayersCacheFromNames] WoW API response: name=%s, realm=%s, class=%s, level=%s, isLeader=%s", tostring(member.name), tostring(member.realm), tostring(member.class), tostring(member.level), tostring(member.isLeader)))
+            self:Print(string.format("DEBUG: [BuildPlayersCacheFromNames] Input member: name=%s, realm=%s, class=%s, level=%s, isLeader=%s", tostring(member.name), tostring(member.realm), tostring(member.class), tostring(member.level), tostring(member.isLeader)))
         end
         local name, realm = member.name, member.realm
         -- If member.name already contains a realm, GetFullPlayerName will handle it
@@ -764,10 +772,10 @@ function Grouper:LogDebug(msg)
 end
 
 -- Utility to get full player name with realm, always using exact realm format
-function Grouper.GetFullPlayerName(name)
+function Grouper.GetFullPlayerName(name, realm)
     if not name then return "" end
-    local realm = GetRealmName()
-    if name:find("-") then
+    -- If name already contains a dash, treat as full name and normalize realm part
+    if name:find("-") and (not realm or realm == "") then
         local base, r = name:match("^(.-)%-(.+)$")
         if base and r then
             r = r:gsub("%s+", "") -- Remove spaces from realm for whisper format
@@ -775,8 +783,15 @@ function Grouper.GetFullPlayerName(name)
         end
         return name
     end
-    realm = realm and realm:gsub("%s+", "") or ""
-    return name .. "-" .. realm
+    -- If realm is provided, use it
+    if realm and realm ~= "" then
+        realm = realm:gsub("%s+", "")
+        return name .. "-" .. realm
+    end
+    -- Fallback to local realm if not provided
+    local localRealm = GetRealmName()
+    localRealm = localRealm and localRealm:gsub("%s+", "") or ""
+    return name .. "-" .. localRealm
 end
 
 -- Cancel repeating timers when the addon is disabled
