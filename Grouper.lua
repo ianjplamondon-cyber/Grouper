@@ -1,3 +1,43 @@
+-- Table to track Grouper-initiated invites
+Grouper.pendingGrouperInvites = Grouper.pendingGrouperInvites or {}
+
+-- Call this when Grouper sends an invite
+function Grouper:TrackGrouperInvite(name)
+    if name then
+        local fullName = Grouper.GetFullPlayerName(name)
+        self.pendingGrouperInvites[fullName] = true
+        if self.db and self.db.profile and self.db.profile.debug and self.db.profile.debug.enabled then
+            self:Print("DEBUG: TrackGrouperInvite - added " .. tostring(fullName) .. " to pendingGrouperInvites.")
+            self:Print("DEBUG: Current pendingGrouperInvites: " .. table.concat(self:ListPendingGrouperInvites(), ", "))
+        end
+    end
+end
+
+function Grouper:ListPendingGrouperInvites()
+    local t = {}
+    for k in pairs(self.pendingGrouperInvites) do
+        table.insert(t, k)
+    end
+    return t
+end
+
+-- Call this to clear a tracked invite (e.g., after join or timeout)
+function Grouper:ClearGrouperInvite(name)
+    if name then
+        local fullName = Grouper.GetFullPlayerName(name)
+        self.pendingGrouperInvites[fullName] = nil
+        if self.db and self.db.profile and self.db.profile.debug and self.db.profile.debug.enabled then
+            self:Print("DEBUG: ClearGrouperInvite - removed " .. tostring(fullName) .. " from pendingGrouperInvites.")
+            self:Print("DEBUG: Current pendingGrouperInvites: " .. table.concat(self:ListPendingGrouperInvites(), ", "))
+        end
+    end
+end
+
+-- Called when a player joins the party but not through Grouper
+function Grouper:ExternalInvite(name)
+    self:Print("DEBUG: External invite detected for " .. tostring(name))
+    -- Add your custom logic here
+end
 --  
 function Grouper:LeaderRemoveMemberFromCache(leftName)
     local playerName = UnitName("player")
@@ -165,11 +205,21 @@ GrouperEventFrame:SetScript("OnEvent", function(self, event, msg)
         local joinedName = msg:match(joinedPartyPattern)
         local invitedName = msg:match(invitedPattern)
         if joinedName and not invitedName then
-            if Grouper and Grouper.HandleJoinedGroupManage then
-                Grouper:HandleJoinedGroupManage()
-            end
-            if Grouper and Grouper.HandleJoinedGroupResults then
-                Grouper:HandleJoinedGroupResults()
+            local fullName = Grouper.GetFullPlayerName(joinedName)
+            -- Store player data in cache (if needed, can expand here)
+            -- Check if joined through Grouper
+            if Grouper.pendingGrouperInvites and Grouper.pendingGrouperInvites[fullName] then
+                Grouper:ClearGrouperInvite(joinedName)
+                if Grouper and Grouper.HandleJoinedGroupManage then
+                    Grouper:HandleJoinedGroupManage()
+                end
+                if Grouper and Grouper.HandleJoinedGroupResults then
+                    Grouper:HandleJoinedGroupResults()
+                end
+            else
+                if Grouper and Grouper.ExternalInvite then
+                    Grouper:ExternalInvite(joinedName)
+                end
             end
         elseif msg:find("leaves the party") then
             local leftPartyPattern = "^(.-) leaves the party%.$"

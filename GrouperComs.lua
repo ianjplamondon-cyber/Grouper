@@ -1756,6 +1756,7 @@ function Grouper:OnAutoJoinRequest(prefix, message, distribution, sender)
         if self.db and self.db.profile and self.db.profile.debug and self.db.profile.debug.enabled then
             self:Print(string.format("DEBUG: About to call InviteUnit('%s')", inviteName))
         end
+        Grouper:TrackGrouperInvite(inviteName)
         local inviteSuccess, inviteError = pcall(function()
             InviteUnit(inviteName)
         end)
