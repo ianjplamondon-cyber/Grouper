@@ -122,6 +122,14 @@ function Grouper:CreateGroupManageFrame(group, tabType)
             if not class or class == "?" then return class end
             return class:sub(1,1):upper() .. class:sub(2):lower()
         end
+        local function CapitalizeRole(role)
+            if not role or role == "?" then return role end
+            local r = string.lower(role)
+            if r == "tank" then return "Tank" end
+            if r == "healer" then return "Healer" end
+            if r == "dps" then return "DPS" end
+            return role:sub(1,1):upper() .. role:sub(2):lower()
+        end
         local tanks, healers, dps, others = {}, {}, {}, {}
         if group.members and #group.members > 0 then
             for _, member in ipairs(group.members) do
@@ -154,14 +162,14 @@ function Grouper:CreateGroupManageFrame(group, tabType)
                 className = CamelCaseClass(className)
                 local raceName = member.race or (member.raceId and RACE_NAMES[member.raceId]) or "Human"
                 local color = CLASS_COLORS[string.upper(className)] or "FFFFFF"
-                local roleText = member.role or "?"
+                local roleText = CapitalizeRole(member.role) or "?"
                 local label = AceGUI:Create("Label")
                 label:SetWidth(470)
                 label:SetText(string.format("|cff%s%s|r | %s | %s | %s | %d", color, member.name or "?", className, roleText, raceName, member.level or 0))
                 rowGroup:AddChild(label)
-                if member.leader == "yes" then
+                if member.leader == "yes" or member.leader == true then
                     if self.db and self.db.profile and self.db.profile.debug and self.db.profile.debug.enabled then
-                        self:Print("DEBUG: Adding leader crown icon for member: " .. tostring(member.name) .. " (leader == 'yes')")
+                        self:Print("DEBUG: Adding leader crown icon for member: " .. tostring(member.name) .. " (leader)")
                     end
                     local crown = AceGUI:Create("Icon")
                     crown:SetImage("Interface\\GroupFrame\\UI-Group-LeaderIcon")

@@ -16,6 +16,7 @@ function Grouper:ShowRoleAssignmentPopup(members, onConfirm)
         ["dps"] = "DPS"
     }
     local roleSelections = {}
+    local levelSelections = {}
 
     for i, member in ipairs(members) do
         local group = AceGUI:Create("SimpleGroup")
@@ -24,21 +25,43 @@ function Grouper:ShowRoleAssignmentPopup(members, onConfirm)
 
         local fullName = Grouper.GetFullPlayerName(member.name)
         local label = AceGUI:Create("Label")
-        label:SetText(string.format("%s (%s %s %s)", fullName, member.class or "?", member.race or "?", member.level or "?"))
-        label:SetWidth(365)
+        label:SetText(string.format("%s (%s %s)", fullName, member.class or "?", member.race or "?"))
+        label:SetWidth(220)
         group:AddChild(label)
 
         local dropdown = AceGUI:Create("Dropdown")
         dropdown:SetList(roleOptions)
         dropdown:SetValue("None")
-        dropdown:SetWidth(100)
+        dropdown:SetWidth(90)
         dropdown:SetCallback("OnValueChanged", function(widget, event, key)
             roleSelections[fullName] = key
         end)
         group:AddChild(dropdown)
 
+        local editBox = AceGUI:Create("EditBox")
+        editBox:SetMaxLetters(2)
+        editBox:SetWidth(40)
+        editBox:SetLabel("Lvl (1-60)")
+        local initialLevel = tonumber(member.level) or ""
+        if type(initialLevel) == "number" and initialLevel > 60 then initialLevel = 60 end
+        editBox:SetText(tostring(initialLevel))
+        editBox:SetCallback("OnTextChanged", function(widget, event, text)
+            local filtered = text:gsub("[^0-9]", "")
+            if filtered ~= text then
+                widget:SetText(filtered)
+            end
+            local num = tonumber(filtered)
+            if num and num > 60 then
+                filtered = "60"
+                widget:SetText(filtered)
+            end
+            levelSelections[fullName] = filtered
+        end)
+        group:AddChild(editBox)
+
         frame:AddChild(group)
         roleSelections[fullName] = "None"
+        levelSelections[fullName] = tostring(member.level or "")
     end
 
     local confirmBtn = AceGUI:Create("Button")
@@ -46,7 +69,7 @@ function Grouper:ShowRoleAssignmentPopup(members, onConfirm)
     confirmBtn:SetFullWidth(true)
     confirmBtn:SetCallback("OnClick", function()
         if onConfirm then
-            onConfirm(roleSelections)
+            onConfirm(roleSelections, levelSelections)
         end
         frame:Hide()
     end)

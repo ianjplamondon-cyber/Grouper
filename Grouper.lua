@@ -68,8 +68,17 @@ function Grouper:ExternalInvite(name)
     end
     if not foundUnit then
         self:Print("DEBUG: Could not find unit for external joiner " .. tostring(name))
+        if self.db and self.db.profile and self.db.profile.debug and self.db.profile.debug.enabled then
+            self:Print("DEBUG: [ExternalInvite] Raw WoW API UnitName: foundUnit is nil, cannot print API info.")
+        end
         return
     end
+    if self.db and self.db.profile and self.db.profile.debug and self.db.profile.debug.enabled then
+        local apiName, apiRealm = UnitName(foundUnit)
+        local apiLevel = UnitLevel and UnitLevel(foundUnit) or nil
+        self:Print(string.format("DEBUG: [ExternalInvite] Raw WoW API UnitName('%s'): name=%s, realm=%s, level=%s", tostring(foundUnit), tostring(apiName), tostring(apiRealm), tostring(apiLevel)))
+    end
+    -- ...existing code...
     local n, r = UnitName(foundUnit)
     local fullName = Grouper.GetFullPlayerName(n, r)
     local classLocalized, class = UnitClass(foundUnit)
@@ -79,55 +88,120 @@ function Grouper:ExternalInvite(name)
         if not str then return str end
         return str:sub(1,1):upper() .. str:sub(2):lower()
     end
-    local level = UnitLevel(foundUnit)
-    local member = {
-        name = fullName,
-        class = TitleCase(class or classLocalized or "?"),
-        race = TitleCase(normRace),
-        level = level or "?"
-    }
-    -- Show role assignment popup for just this member
-    self:ShowRoleAssignmentPopup({member}, function(roleSelections)
-        local selectedRole = roleSelections[fullName]
-        if not selectedRole or selectedRole == "None" then
-            self:Print("DEBUG: No role selected for " .. fullName .. ". Skipping add to Grouper group.")
-            return
+    -- Get the player's level using the WoW API
+    local level = UnitLevel and UnitLevel(foundUnit) or nil
+    if not level or level == 0 then
+        -- fallback: try to get level from group roster if available (future-proofing)
+        if C_PlayerInfo and C_PlayerInfo.GetPlayerLevel then
+            level = C_PlayerInfo.GetPlayerLevel(fullName) or level
         end
-        -- Add to self.players
-        self.players = self.players or {}
-        self.players[fullName] = self.players[fullName] or {}
-        self.players[fullName].fullName = fullName
-        self.players[fullName].name = fullName
-        self.players[fullName].class = member.class
-        self.players[fullName].race = member.race
-        self.players[fullName].level = member.level
-        self.players[fullName].role = selectedRole
-        self.players[fullName].groupId = leaderGroupId
-        self.players[fullName].leader = false
-        -- Add to group.members if not already present
-        local alreadyInGroup = false
-        for _, m in ipairs(group.members) do
-            if Grouper.NormalizeFullPlayerName(m.name) == Grouper.NormalizeFullPlayerName(fullName) then
-                alreadyInGroup = true
-                break
+    end
+    local function showRolePopupWithLevel(member)
+        self:ShowRoleAssignmentPopup({member}, function(roleSelections)
+            local selectedRole = roleSelections[fullName]
+            if not selectedRole or selectedRole == "None" then
+                self:Print("DEBUG: No role selected for " .. fullName .. ". Skipping add to Grouper group.")
+                return
             end
-        end
-        if not alreadyInGroup then
-            table.insert(group.members, {
-                name = fullName,
-                class = member.class,
-                race = member.race,
-                level = member.level,
-                role = selectedRole,
-                leader = false
-            })
-        end
-        -- Broadcast group update and refresh UI
-        self:SendComm("GROUP_UPDATE", group)
-        if self.RefreshGroupListManage then self:RefreshGroupListManage() end
-        if self.RefreshGroupListResults then self:RefreshGroupListResults() end
-        self:Print("DEBUG: Added external joiner " .. fullName .. " to Grouper group and broadcast update.")
-    end)
+            -- Add to self.players
+            self.players = self.players or {}
+            self.players[fullName] = self.players[fullName] or {}
+            self.players[fullName].fullName = fullName
+            self.players[fullName].name = fullName
+            self.players[fullName].class = member.class
+            self.players[fullName].race = member.race
+            self.players[fullName].level = member.level
+            self.players[fullName].role = selectedRole
+            self.players[fullName].groupId = leaderGroupId
+            self.players[fullName].leader = false
+            -- Add to group.members if not already present
+            local alreadyInGroup = false
+            for _, m in ipairs(group.members) do
+                if Grouper.NormalizeFullPlayerName(m.name) == Grouper.NormalizeFullPlayerName(fullName) then
+                    alreadyInGroup = true
+                    break
+                end
+            end
+            if not alreadyInGroup then
+                table.insert(group.members, {
+                    name = fullName,
+                    class = member.class,
+                    race = member.race,
+                    level = member.level,
+                    role = selectedRole,
+                    leader = false
+                })
+            end
+            -- Broadcast group update and refresh UI
+            self:SendComm("GROUP_UPDATE", group)
+            if self.RefreshGroupListManage then self:RefreshGroupListManage() end
+            if self.RefreshGroupListResults then self:RefreshGroupListResults() end
+            self:Print("DEBUG: Added external joiner " .. fullName .. " to Grouper group and broadcast update.")
+        end)
+    end
+
+    if not level or level == 0 then
+        -- Show a popup to input level
+        local AceGUI = LibStub("AceGUI-3.0")
+        local frame = AceGUI:Create("Frame")
+        frame:SetTitle("Enter Player Level")
+        frame:SetWidth(250)
+        frame:SetHeight(120)
+        frame:SetLayout("List")
+        frame:EnableResize(false)
+        local label = AceGUI:Create("Label")
+        label:SetText("Enter the player's level (1-60):")
+        frame:AddChild(label)
+        local editBox = AceGUI:Create("EditBox")
+        editBox:SetMaxLetters(2)
+        editBox:SetWidth(60)
+        editBox:SetLabel("Level")
+        editBox:SetText("")
+        editBox:SetCallback("OnTextChanged", function(widget, event, text)
+            -- Only allow numbers and cap at 60
+            local filtered = text:gsub("[^0-9]", "")
+            local num = tonumber(filtered)
+            if num and num > 60 then
+                filtered = "60"
+            end
+            if filtered ~= text then
+                widget:SetText(filtered)
+            end
+        end)
+        frame:AddChild(editBox)
+        local errorLabel = AceGUI:Create("Label")
+        errorLabel:SetText("")
+        errorLabel:SetColor(1, 0, 0)
+        frame:AddChild(errorLabel)
+
+        local confirmBtn = AceGUI:Create("Button")
+        confirmBtn:SetText("OK")
+        confirmBtn:SetFullWidth(true)
+        confirmBtn:SetCallback("OnClick", function()
+            local val = tonumber(editBox:GetText())
+            if val and val >= 1 and val <= 60 then
+                member = {
+                    name = fullName,
+                    class = TitleCase(class or classLocalized or "?"),
+                    race = TitleCase(normRace),
+                    level = val
+                }
+                frame:Hide()
+                showRolePopupWithLevel(member)
+            else
+                errorLabel:SetText("Please enter a level from 1 to 60.")
+            end
+        end)
+        frame:AddChild(confirmBtn)
+    else
+        member = {
+            name = fullName,
+            class = TitleCase(class or classLocalized or "?"),
+            race = TitleCase(normRace),
+            level = level
+        }
+        showRolePopupWithLevel(member)
+    end
 end
 --  
 function Grouper:LeaderRemoveMemberFromCache(leftName)
