@@ -89,8 +89,9 @@ function Grouper:CreateGroupFrame(group, tabType)
         sortedMembers[5] = dps[3]
         local maxSpots = 5
         for i = 1, maxSpots do
-            local label = AceGUI:Create("Label")
-            label:SetWidth(500)
+            local rowGroup = AceGUI:Create("SimpleGroup")
+            rowGroup:SetLayout("Flow")
+            rowGroup:SetFullWidth(true)
             local member = sortedMembers[i]
             if member then
                 local className = member.class or (member.classId and CLASS_NAMES[member.classId]) or "PRIEST"
@@ -98,11 +99,23 @@ function Grouper:CreateGroupFrame(group, tabType)
                 local raceName = member.race or (member.raceId and RACE_NAMES[member.raceId]) or "Human"
                 local color = CLASS_COLORS[string.upper(className)] or "FFFFFF"
                 local roleText = member.role or "?"
+                local label = AceGUI:Create("Label")
+                label:SetWidth(470)
                 label:SetText(string.format("|cff%s%s|r | %s | %s | %s | %d", color, member.name or "?", className, roleText, raceName, member.level or 0))
+                rowGroup:AddChild(label)
+                if member.leader == "yes" or member.leader == true then
+                    local crown = AceGUI:Create("Icon")
+                    crown:SetImage("Interface\\GroupFrame\\UI-Group-LeaderIcon")
+                    crown:SetImageSize(16, 16)
+                    rowGroup:AddChild(crown)
+                end
             else
+                local label = AceGUI:Create("Label")
+                label:SetWidth(470)
                 label:SetText("- Empty Slot -")
+                rowGroup:AddChild(label)
             end
-            membersGroup:AddChild(label)
+            membersGroup:AddChild(rowGroup)
         end
     else
         -- Original logic for non-dungeon types
@@ -112,15 +125,25 @@ function Grouper:CreateGroupFrame(group, tabType)
         end
         if group.members and #group.members > 0 then
             for _, member in ipairs(group.members) do
-                local label = AceGUI:Create("Label")
-                label:SetWidth(250)
+                local rowGroup = AceGUI:Create("SimpleGroup")
+                rowGroup:SetLayout("Flow")
+                rowGroup:SetFullWidth(true)
                 local className = member.class or (member.classId and CLASS_NAMES[member.classId]) or "PRIEST"
                 className = CamelCaseClass(className)
                 local raceName = member.race or (member.raceId and RACE_NAMES[member.raceId]) or "Human"
                 local color = CLASS_COLORS[string.upper(className)] or "FFFFFF"
                 local roleText = member.role or "?"
+                local label = AceGUI:Create("Label")
+                label:SetWidth(220)
                 label:SetText(string.format("|cff%s%s|r | %s | %s | %s | %d", color, member.name or "?", className, roleText, raceName, member.level or 0))
-                membersGroup:AddChild(label)
+                rowGroup:AddChild(label)
+                if member.leader == "yes" or member.leader == true then
+                    local crown = AceGUI:Create("Icon")
+                    crown:SetImage("Interface\\GroupFrame\\UI-Group-LeaderIcon")
+                    crown:SetImageSize(16, 16)
+                    rowGroup:AddChild(crown)
+                end
+                membersGroup:AddChild(rowGroup)
             end
         else
             local label = AceGUI:Create("Label")
