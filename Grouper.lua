@@ -36,7 +36,98 @@ end
 -- Called when a player joins the party but not through Grouper
 function Grouper:ExternalInvite(name)
     self:Print("DEBUG: External invite detected for " .. tostring(name))
-    -- Add your custom logic here
+    -- Only proceed if a Grouper group exists and player is leader
+    if not self.groups or not next(self.groups) then
+        self:Print("DEBUG: No Grouper group exists. External invite workflow skipped.")
+        return
+    end
+    local playerFullName = Grouper.GetFullPlayerName(UnitName("player"))
+    local leaderGroupId, group = nil, nil
+    for groupId, g in pairs(self.groups) do
+        if Grouper.NormalizeFullPlayerName(g.leader) == Grouper.NormalizeFullPlayerName(playerFullName) then
+            leaderGroupId = groupId
+            group = g
+            break
+        end
+    end
+    if not group then
+        self:Print("DEBUG: You are not the Grouper group leader. External invite workflow skipped.")
+        return
+    end
+    -- Build member info for the new player
+    local foundUnit = nil
+    local numGroupMembers = GetNumGroupMembers and GetNumGroupMembers() or 0
+    local isRaid = IsInRaid and IsInRaid()
+    for i = 1, numGroupMembers do
+        local unit = isRaid and ("raid"..i) or (i == 1 and "player" or "party"..(i-1))
+        local n, r = UnitName(unit)
+        if n and Grouper.GetFullPlayerName(n, r) == Grouper.GetFullPlayerName(name) then
+            foundUnit = unit
+            break
+        end
+    end
+    if not foundUnit then
+        self:Print("DEBUG: Could not find unit for external joiner " .. tostring(name))
+        return
+    end
+    local n, r = UnitName(foundUnit)
+    local fullName = Grouper.GetFullPlayerName(n, r)
+    local classLocalized, class = UnitClass(foundUnit)
+    local raceLocalized, race = UnitRace(foundUnit)
+    local normRace = (race == "Scourge" or raceLocalized == "Scourge") and "Undead" or (race or raceLocalized or "?")
+    local function TitleCase(str)
+        if not str then return str end
+        return str:sub(1,1):upper() .. str:sub(2):lower()
+    end
+    local level = UnitLevel(foundUnit)
+    local member = {
+        name = fullName,
+        class = TitleCase(class or classLocalized or "?"),
+        race = TitleCase(normRace),
+        level = level or "?"
+    }
+    -- Show role assignment popup for just this member
+    self:ShowRoleAssignmentPopup({member}, function(roleSelections)
+        local selectedRole = roleSelections[fullName]
+        if not selectedRole or selectedRole == "None" then
+            self:Print("DEBUG: No role selected for " .. fullName .. ". Skipping add to Grouper group.")
+            return
+        end
+        -- Add to self.players
+        self.players = self.players or {}
+        self.players[fullName] = self.players[fullName] or {}
+        self.players[fullName].fullName = fullName
+        self.players[fullName].name = fullName
+        self.players[fullName].class = member.class
+        self.players[fullName].race = member.race
+        self.players[fullName].level = member.level
+        self.players[fullName].role = selectedRole
+        self.players[fullName].groupId = leaderGroupId
+        self.players[fullName].leader = false
+        -- Add to group.members if not already present
+        local alreadyInGroup = false
+        for _, m in ipairs(group.members) do
+            if Grouper.NormalizeFullPlayerName(m.name) == Grouper.NormalizeFullPlayerName(fullName) then
+                alreadyInGroup = true
+                break
+            end
+        end
+        if not alreadyInGroup then
+            table.insert(group.members, {
+                name = fullName,
+                class = member.class,
+                race = member.race,
+                level = member.level,
+                role = selectedRole,
+                leader = false
+            })
+        end
+        -- Broadcast group update and refresh UI
+        self:SendComm("GROUP_UPDATE", group)
+        if self.RefreshGroupListManage then self:RefreshGroupListManage() end
+        if self.RefreshGroupListResults then self:RefreshGroupListResults() end
+        self:Print("DEBUG: Added external joiner " .. fullName .. " to Grouper group and broadcast update.")
+    end)
 end
 --  
 function Grouper:LeaderRemoveMemberFromCache(leftName)
