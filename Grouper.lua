@@ -1678,7 +1678,29 @@ function Grouper:ShowTab(container, tabName)
     elseif tabName == "manage" then
         self:CreateManageTab(container)
     elseif tabName == "results" then
-    self:CreateResultsTab(container) -- New case for results tab
+        self:CreateResultsTab(container) -- New case for results tab
+    end
+
+    -- Add tooltips to tab labels (TabGroup)
+    if self.tabGroup and not self._tabTooltipsHooked then
+        self.tabGroup._tabTooltipsHooked = true
+        self.tabGroup:SetCallback("OnTabEnter", function(widget, event, tabValue, frame)
+            local tooltips = {
+                browse = "Set filters to narrow your group search.",
+                results = "View groups that match your filters.",
+                create = "Create a new group and broadcast it.",
+                manage = "View and manage groups you lead or have joined."
+            }
+            local tip = tooltips[tabValue]
+            if tip and frame then
+                GameTooltip:SetOwner(frame, "ANCHOR_RIGHT")
+                GameTooltip:SetText(tip, 1, 1, 1, 1, true)
+                GameTooltip:Show()
+            end
+        end)
+        self.tabGroup:SetCallback("OnTabLeave", function(widget, event, tabValue, frame)
+            GameTooltip:Hide()
+        end)
     end
 
 end
