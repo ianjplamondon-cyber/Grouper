@@ -17,6 +17,18 @@ function Grouper:CreateBrowseTab(container)
         self.db.profile.filters.minLevel = value
         self:RefreshGroupListResults()
     end)
+    -- Add tooltip to min level slider label
+    if minLevelSlider.label then
+        minLevelSlider.label:EnableMouse(true)
+        minLevelSlider.label:SetScript("OnEnter", function()
+            GameTooltip:SetOwner(minLevelSlider.label, "ANCHOR_RIGHT")
+            GameTooltip:SetText("Set the minimum player level for group search results.", 1, 1, 1, 1, true)
+            GameTooltip:Show()
+        end)
+        minLevelSlider.label:SetScript("OnLeave", function()
+            GameTooltip:Hide()
+        end)
+    end
     filterGroup:AddChild(minLevelSlider)
     
     local maxLevelSlider = AceGUI:Create("Slider")
@@ -28,6 +40,18 @@ function Grouper:CreateBrowseTab(container)
         self.db.profile.filters.maxLevel = value
         self:RefreshGroupListResults()
     end)
+    -- Add tooltip to max level slider label
+    if maxLevelSlider.label then
+        maxLevelSlider.label:EnableMouse(true)
+        maxLevelSlider.label:SetScript("OnEnter", function()
+            GameTooltip:SetOwner(maxLevelSlider.label, "ANCHOR_RIGHT")
+            GameTooltip:SetText("Set the maximum player level for group search results.", 1, 1, 1, 1, true)
+            GameTooltip:Show()
+        end)
+        maxLevelSlider.label:SetScript("OnLeave", function()
+            GameTooltip:Hide()
+        end)
+    end
     filterGroup:AddChild(maxLevelSlider)
     
     -- Group type checkboxes
@@ -163,7 +187,7 @@ function Grouper:CreateBrowseTab(container)
     
     -- Refresh button
     local refreshButton = AceGUI:Create("Button")
-    refreshButton:SetText("Refresh")
+    refreshButton:SetText("Search")
     refreshButton:SetWidth(80)
     refreshButton:SetCallback("OnClick", function()
         if self.db.profile.debug.enabled then
@@ -200,6 +224,16 @@ function Grouper:CreateBrowseTab(container)
             self:RefreshGroupListResults()
         end, 15)
         --]]
+    end)
+    -- Add tooltip to Search button
+    refreshButton.frame:EnableMouse(true)
+    refreshButton.frame:SetScript("OnEnter", function()
+        GameTooltip:SetOwner(refreshButton.frame, "ANCHOR_RIGHT")
+        GameTooltip:SetText("Request updated group listings from other players.", 1, 1, 1, 1, true)
+        GameTooltip:Show()
+    end)
+    refreshButton.frame:SetScript("OnLeave", function()
+        GameTooltip:Hide()
     end)
     filterGroup:AddChild(refreshButton)
     --[[
