@@ -179,10 +179,15 @@ function Grouper:CreateBrowseTab(container)
         self:RefreshGroupListResults()
     end)
     filterGroup:AddChild(dungeonFilter)
-    
-    -- Refresh button
+
+    -- Add a small horizontal spacer before the Search button
+    local searchSpacer = AceGUI:Create("Label")
+    searchSpacer:SetWidth(5)
+    filterGroup:AddChild(searchSpacer)
+
+    -- Search button
     local refreshButton = AceGUI:Create("Button")
-    refreshButton:SetText("Refresh")
+    refreshButton:SetText("Search")
     refreshButton:SetWidth(80)
     refreshButton:SetCallback("OnClick", function()
         if self.db.profile.debug.enabled then
