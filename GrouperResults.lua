@@ -188,6 +188,7 @@ function Grouper:CreateGroupFrame(group, tabType)
             healer = "Healer",
             dps = "DPS"
         })
+        -- Tooltip logic removed; only present in search filters tab (Browse)
         -- Restore last selected role from SV if available
         local lastRole = self.db and self.db.profile and self.db.profile.lastRole
         if lastRole and (lastRole == "tank" or lastRole == "healer" or lastRole == "dps") then

@@ -62,6 +62,13 @@ function Grouper:CreateBrowseTab(container)
     -- Role filter dropdown
     local roleFilterDropdown = AceGUI:Create("Dropdown")
     roleFilterDropdown:SetLabel("Filter by Role")
+    if roleFilterDropdown.label then
+        if roleFilterDropdown.label.SetJustifyH then
+            roleFilterDropdown.label:SetJustifyH("CENTER")
+        elseif roleFilterDropdown.label.SetTextAlign then
+            roleFilterDropdown.label:SetTextAlign("CENTER")
+        end
+    end
     roleFilterDropdown:SetList({
         any = "Any",
         tank = "Tank",
@@ -73,6 +80,16 @@ function Grouper:CreateBrowseTab(container)
     roleFilterDropdown:SetCallback("OnValueChanged", function(widget, event, value)
         self.db.profile.filters.role = value
         self:RefreshGroupListResults()
+    end)
+    -- Add tooltip for role filter dropdown
+    roleFilterDropdown.frame:EnableMouse(true)
+    roleFilterDropdown.frame:SetScript("OnEnter", function()
+        GameTooltip:SetOwner(roleFilterDropdown.frame, "ANCHOR_RIGHT")
+        GameTooltip:SetText("Filter results to only show groups seeking this role.", 1, 1, 1, 1, true)
+        GameTooltip:Show()
+    end)
+    roleFilterDropdown.frame:SetScript("OnLeave", function()
+        GameTooltip:Hide()
     end)
     filterGroup:AddChild(roleFilterDropdown)
     -- Dungeon filter dropdown
