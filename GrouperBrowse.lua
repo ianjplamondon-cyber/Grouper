@@ -95,6 +95,13 @@ function Grouper:CreateBrowseTab(container)
     -- Dungeon filter dropdown
     local dungeonFilter = AceGUI:Create("Dropdown")
     dungeonFilter:SetLabel("Filter by Dungeon")
+    if dungeonFilter.label then
+        if dungeonFilter.label.SetJustifyH then
+            dungeonFilter.label:SetJustifyH("CENTER")
+        elseif dungeonFilter.label.SetTextAlign then
+            dungeonFilter.label:SetTextAlign("CENTER")
+        end
+    end
     dungeonFilter:SetWidth(180) -- Reduced from 200
     
     -- Build dungeon list for dropdown
