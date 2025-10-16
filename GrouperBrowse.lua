@@ -52,6 +52,38 @@ function Grouper:CreateBrowseTab(container)
         if typeInfo.key == "raid" or typeInfo.key == "pvp" then
             checkbox:SetDisabled(true)
         end
+        -- Add tooltips for Dungeon, Quest, and Other
+        if typeInfo.key == "dungeon" then
+            checkbox.frame:EnableMouse(true)
+            checkbox.frame:SetScript("OnEnter", function()
+                GameTooltip:SetOwner(checkbox.frame, "ANCHOR_RIGHT")
+                GameTooltip:SetText("Show dungeon groups.", 1, 1, 1, 1, true)
+                GameTooltip:Show()
+            end)
+            checkbox.frame:SetScript("OnLeave", function()
+                GameTooltip:Hide()
+            end)
+        elseif typeInfo.key == "quest" then
+            checkbox.frame:EnableMouse(true)
+            checkbox.frame:SetScript("OnEnter", function()
+                GameTooltip:SetOwner(checkbox.frame, "ANCHOR_RIGHT")
+                GameTooltip:SetText("Show quest groups.", 1, 1, 1, 1, true)
+                GameTooltip:Show()
+            end)
+            checkbox.frame:SetScript("OnLeave", function()
+                GameTooltip:Hide()
+            end)
+        elseif typeInfo.key == "other" then
+            checkbox.frame:EnableMouse(true)
+            checkbox.frame:SetScript("OnEnter", function()
+                GameTooltip:SetOwner(checkbox.frame, "ANCHOR_RIGHT")
+                GameTooltip:SetText("Show other (miscellaneous) groups.", 1, 1, 1, 1, true)
+                GameTooltip:Show()
+            end)
+            checkbox.frame:SetScript("OnLeave", function()
+                GameTooltip:Hide()
+            end)
+        end
         checkbox:SetCallback("OnValueChanged", function(widget, event, value)
             self.db.profile.filters.dungeonTypes[typeInfo.key] = value
             self:RefreshGroupListResults()
@@ -116,6 +148,16 @@ function Grouper:CreateBrowseTab(container)
     dungeonFilter:SetCallback("OnValueChanged", function(widget, event, value)
         self.selectedDungeonFilter = value
         self:RefreshGroupListResults()
+    end)
+    -- Add tooltip for dungeon filter dropdown
+    dungeonFilter.frame:EnableMouse(true)
+    dungeonFilter.frame:SetScript("OnEnter", function()
+        GameTooltip:SetOwner(dungeonFilter.frame, "ANCHOR_RIGHT")
+        GameTooltip:SetText("Filter results to only show groups for a specific dungeon.", 1, 1, 1, 1, true)
+        GameTooltip:Show()
+    end)
+    dungeonFilter.frame:SetScript("OnLeave", function()
+        GameTooltip:Hide()
     end)
     filterGroup:AddChild(dungeonFilter)
     
