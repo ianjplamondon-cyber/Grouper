@@ -225,12 +225,14 @@ function Grouper:CreateBrowseTab(container)
         end, 15)
         --]]
     end)
-    -- Add tooltip to Search button
+    -- Add tooltip to Search button (only in filters tab)
     refreshButton.frame:EnableMouse(true)
     refreshButton.frame:SetScript("OnEnter", function()
-        GameTooltip:SetOwner(refreshButton.frame, "ANCHOR_RIGHT")
-        GameTooltip:SetText("Request updated group listings from other players.", 1, 1, 1, 1, true)
-        GameTooltip:Show()
+        if self and self.GetName and self:GetName() == "GrouperBrowseTab" then
+            GameTooltip:SetOwner(refreshButton.frame, "ANCHOR_RIGHT")
+            GameTooltip:SetText("Request updated group listings from other players.", 1, 1, 1, 1, true)
+            GameTooltip:Show()
+        end
     end)
     refreshButton.frame:SetScript("OnLeave", function()
         GameTooltip:Hide()

@@ -178,6 +178,16 @@ function Grouper:CreateGroupFrame(group, tabType)
                 end
             end
         end)
+        -- Tooltip for Whisper Leader button
+        whisperButton.frame:EnableMouse(true)
+        whisperButton.frame:SetScript("OnEnter", function()
+            GameTooltip:SetOwner(whisperButton.frame, "ANCHOR_RIGHT")
+            GameTooltip:SetText("Send a whisper to the group leader.", 1, 1, 1, 1, true)
+            GameTooltip:Show()
+        end)
+        whisperButton.frame:SetScript("OnLeave", function()
+            GameTooltip:Hide()
+        end)
         buttonGroup:AddChild(whisperButton)
 
         -- Role dropdown to the right of Auto-Join button
@@ -300,6 +310,16 @@ function Grouper:CreateGroupFrame(group, tabType)
                        end
                    end
                end
+        end)
+        -- Tooltip for Auto-Join button
+        autoJoinButton.frame:EnableMouse(true)
+        autoJoinButton.frame:SetScript("OnEnter", function()
+            GameTooltip:SetOwner(autoJoinButton.frame, "ANCHOR_RIGHT")
+            GameTooltip:SetText("Request to join this group.", 1, 1, 1, 1, true)
+            GameTooltip:Show()
+        end)
+        autoJoinButton.frame:SetScript("OnLeave", function()
+            GameTooltip:Hide()
         end)
         buttonGroup:AddChild(autoJoinButton)
     end
