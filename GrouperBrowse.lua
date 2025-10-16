@@ -13,17 +13,43 @@ function Grouper:CreateBrowseTab(container)
     minLevelSlider:SetSliderValues(1, 60, 1)
     minLevelSlider:SetValue(self.db.profile.filters.minLevel)
     minLevelSlider:SetWidth(120) -- Reduced from 150
+    -- Tooltip for Min Level
+    if minLevelSlider.label then
+        minLevelSlider.label:EnableMouse(true)
+        minLevelSlider.label:SetScript("OnEnter", function()
+            GameTooltip:SetOwner(minLevelSlider.label, "ANCHOR_TOP")
+            GameTooltip:SetText("Minimum Level", 1, 1, 1)
+            GameTooltip:AddLine("Only show groups with a minimum level at or above this value.", nil, nil, nil, true)
+            GameTooltip:Show()
+        end)
+        minLevelSlider.label:SetScript("OnLeave", function()
+            GameTooltip:Hide()
+        end)
+    end
     minLevelSlider:SetCallback("OnValueChanged", function(widget, event, value)
         self.db.profile.filters.minLevel = value
         self:RefreshGroupListResults()
     end)
     filterGroup:AddChild(minLevelSlider)
-    
+
     local maxLevelSlider = AceGUI:Create("Slider")
     maxLevelSlider:SetLabel("Max Level")
     maxLevelSlider:SetSliderValues(1, 60, 1)
     maxLevelSlider:SetValue(self.db.profile.filters.maxLevel)
     maxLevelSlider:SetWidth(120) -- Reduced from 150
+    -- Tooltip for Max Level
+    if maxLevelSlider.label then
+        maxLevelSlider.label:EnableMouse(true)
+        maxLevelSlider.label:SetScript("OnEnter", function()
+            GameTooltip:SetOwner(maxLevelSlider.label, "ANCHOR_TOP")
+            GameTooltip:SetText("Maximum Level", 1, 1, 1)
+            GameTooltip:AddLine("Only show groups with a maximum level at or below this value.", nil, nil, nil, true)
+            GameTooltip:Show()
+        end)
+        maxLevelSlider.label:SetScript("OnLeave", function()
+            GameTooltip:Hide()
+        end)
+    end
     maxLevelSlider:SetCallback("OnValueChanged", function(widget, event, value)
         self.db.profile.filters.maxLevel = value
         self:RefreshGroupListResults()
