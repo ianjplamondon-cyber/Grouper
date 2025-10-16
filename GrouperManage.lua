@@ -163,19 +163,14 @@ function Grouper:CreateGroupManageFrame(group, tabType)
                 local raceName = member.race or (member.raceId and RACE_NAMES[member.raceId]) or "Human"
                 local color = CLASS_COLORS[string.upper(className)] or "FFFFFF"
                 local roleText = CapitalizeRole(member.role) or "?"
+                local crown = ""
+                if member.leader == "yes" or (Grouper.GetFullPlayerName and group.leader and Grouper.GetFullPlayerName(member.name, member.realm) == Grouper.GetFullPlayerName(group.leader)) then
+                    crown = "|TInterface\\GroupFrame\\UI-Group-LeaderIcon:16:16:0:4|t "
+                end
                 local label = AceGUI:Create("Label")
                 label:SetWidth(470)
-                label:SetText(string.format("|cff%s%s|r | %s | %s | %s | %d", color, member.name or "?", className, roleText, raceName, member.level or 0))
+                label:SetText(string.format("%s|cff%s%s|r | %s | %s | %s | %d", crown, color, member.name or "?", className, roleText, raceName, member.level or 0))
                 rowGroup:AddChild(label)
-                if member.leader == "yes" then
-                    if self.db and self.db.profile and self.db.profile.debug and self.db.profile.debug.enabled then
-                        self:Print("DEBUG: Adding leader crown icon for member: " .. tostring(member.name) .. " (leader)")
-                    end
-                    local crown = AceGUI:Create("Icon")
-                    crown:SetImage("Interface\\GroupFrame\\UI-Group-LeaderIcon")
-                    crown:SetImageSize(16, 16)
-                    rowGroup:AddChild(crown)
-                end
             else
                 local label = AceGUI:Create("Label")
                 label:SetText("- Empty Slot -")
@@ -210,7 +205,7 @@ function Grouper:CreateGroupManageFrame(group, tabType)
                     local crown = AceGUI:Create("Icon")
                     crown:SetImage("Interface\\GroupFrame\\UI-Group-LeaderIcon")
                     crown:SetImageSize(16, 16)
-                    rowGroup:AddChild(crown)
+                        -- rowGroup:AddChild(crown) -- Removed erroneous line
                 end
                 membersGroup:AddChild(rowGroup)
             end

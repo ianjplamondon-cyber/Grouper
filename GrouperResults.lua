@@ -99,19 +99,14 @@ function Grouper:CreateGroupFrame(group, tabType)
                 local raceName = member.race or (member.raceId and RACE_NAMES[member.raceId]) or "Human"
                 local color = CLASS_COLORS[string.upper(className)] or "FFFFFF"
                 local roleText = member.role or "?"
+                local crown = ""
+                if member.leader == "yes" or (Grouper.GetFullPlayerName and group.leader and Grouper.GetFullPlayerName(member.name, member.realm) == Grouper.GetFullPlayerName(group.leader)) then
+                    crown = "|TInterface\\GroupFrame\\UI-Group-LeaderIcon:16:16:0:4|t "
+                end
                 local label = AceGUI:Create("Label")
                 label:SetWidth(470)
-                label:SetText(string.format("|cff%s%s|r | %s | %s | %s | %d", color, member.name or "?", className, roleText, raceName, member.level or 0))
+                label:SetText(string.format("%s|cff%s%s|r | %s | %s | %s | %d", crown, color, member.name or "?", className, roleText, raceName, member.level or 0))
                 rowGroup:AddChild(label)
-                    -- Show leader crown if member.leader == "yes" OR member.name matches group.leader
-                    local normalizedMemberName = member.name and string.gsub(string.lower(member.name), "-", "") or ""
-                    local normalizedGroupLeader = group.leader and string.gsub(string.lower(group.leader), "-", "") or ""
-                    if member.leader == "yes" or (normalizedMemberName ~= "" and normalizedGroupLeader ~= "" and normalizedMemberName == normalizedGroupLeader) then
-                        local crown = AceGUI:Create("Icon")
-                        crown:SetImage("Interface\\GroupFrame\\UI-Group-LeaderIcon")
-                        crown:SetImageSize(16, 16)
-                        rowGroup:AddChild(crown)
-                end
             else
                 local label = AceGUI:Create("Label")
                 label:SetWidth(470)
@@ -137,15 +132,13 @@ function Grouper:CreateGroupFrame(group, tabType)
                 local color = CLASS_COLORS[string.upper(className)] or "FFFFFF"
                 local roleText = member.role or "?"
                 local label = AceGUI:Create("Label")
-                label:SetWidth(220)
-                label:SetText(string.format("|cff%s%s|r | %s | %s | %s | %d", color, member.name or "?", className, roleText, raceName, member.level or 0))
-                rowGroup:AddChild(label)
-                if member.leader == "yes" or member.leader == true then
-                    local crown = AceGUI:Create("Icon")
-                    crown:SetImage("Interface\\GroupFrame\\UI-Group-LeaderIcon")
-                    crown:SetImageSize(16, 16)
-                    rowGroup:AddChild(crown)
+                label:SetWidth(470)
+                local crown = ""
+                if member.leader == "yes" or (Grouper.GetFullPlayerName and group.leader and Grouper.GetFullPlayerName(member.name, member.realm) == Grouper.GetFullPlayerName(group.leader)) then
+                    crown = "|TInterface\\GroupFrame\\UI-Group-LeaderIcon:16:16:0:0|t "
                 end
+                label:SetText(string.format("%s|cff%s%s|r | %s | %s | %s | %d", crown, color, member.name or "?", className, roleText, raceName, member.level or 0))
+                rowGroup:AddChild(label)
                 membersGroup:AddChild(rowGroup)
             end
         else
