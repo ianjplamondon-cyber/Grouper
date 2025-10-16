@@ -1662,26 +1662,7 @@ function Grouper:CreateMainWindowContent()
     
     self.tabGroup = tabGroup
 
-    -- No persistent scroll frames needed; each tab creates its own
-end
-
--- Show the selected tab
-function Grouper:ShowTab(container, tabName)
-    container:ReleaseChildren()
-
-    if tabName == "browse" then
-        self:CreateBrowseTab(container)
-    elseif tabName == "results" then
-        self:CreateResultsTab(container)
-    elseif tabName == "create" then
-        self:CreateCreateTab(container)
-    elseif tabName == "manage" then
-        self:CreateManageTab(container)
-    elseif tabName == "results" then
-        self:CreateResultsTab(container) -- New case for results tab
-    end
-
-    -- Add tooltips to tab labels (TabGroup)
+    -- Add tooltips to tab labels (TabGroup) immediately so they work on first load
     if self.tabGroup and not self._tabTooltipsHooked then
         self.tabGroup._tabTooltipsHooked = true
         self.tabGroup:SetCallback("OnTabEnter", function(widget, event, tabValue, frame)
@@ -1702,6 +1683,26 @@ function Grouper:ShowTab(container, tabName)
             GameTooltip:Hide()
         end)
     end
+
+    -- No persistent scroll frames needed; each tab creates its own
+end
+
+-- Show the selected tab
+function Grouper:ShowTab(container, tabName)
+    container:ReleaseChildren()
+
+    if tabName == "browse" then
+        self:CreateBrowseTab(container)
+    elseif tabName == "results" then
+        self:CreateResultsTab(container)
+    elseif tabName == "create" then
+        self:CreateCreateTab(container)
+    elseif tabName == "manage" then
+        self:CreateManageTab(container)
+    elseif tabName == "results" then
+        self:CreateResultsTab(container) -- New case for results tab
+    end
+
 
 end
 
