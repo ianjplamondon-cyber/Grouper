@@ -157,30 +157,32 @@ function Grouper:CreateGroupManageFrame(group, tabType)
             rowGroup:SetLayout("Flow")
             rowGroup:SetFullWidth(true)
             local member = sortedMembers[i]
-            if member then
-                local className = member.class or (member.classId and CLASS_NAMES[member.classId]) or "PRIEST"
-                className = CamelCaseClass(className)
-                local raceName = member.race or (member.raceId and RACE_NAMES[member.raceId]) or "Human"
-                local color = CLASS_COLORS[string.upper(className)] or "FFFFFF"
-                local roleText = CapitalizeRole(member.role) or "?"
-                local label = AceGUI:Create("Label")
-                label:SetWidth(470)
-                label:SetText(string.format("|cff%s%s|r | %s | %s | %s | %d", color, member.name or "?", className, roleText, raceName, member.level or 0))
-                rowGroup:AddChild(label)
-                if member.leader == "yes" or member.leader == true then
-                    if self.db and self.db.profile and self.db.profile.debug and self.db.profile.debug.enabled then
-                        self:Print("DEBUG: Adding leader crown icon for member: " .. tostring(member.name) .. " (leader)")
+                    if type(member) == "table" and type(member.name) == "string" then
+                        local className = member.class or (member.classId and CLASS_NAMES[member.classId]) or "PRIEST"
+                        className = CamelCaseClass(className)
+                        local raceName = member.race or (member.raceId and RACE_NAMES[member.raceId]) or "Human"
+                        local color = CLASS_COLORS[string.upper(className)] or "FFFFFF"
+                        local roleText = CapitalizeRole(member.role) or "?"
+                        local memberFullName = Grouper.GetFullPlayerName and Grouper.GetFullPlayerName(member.name) or member.name
+                        if self.db and self.db.profile and self.db.profile.debug and self.db.profile.debug.enabled then
+                            self:Print("DEBUG: [Manage] member=" .. tostring(member.name) .. ", memberFullName=" .. tostring(memberFullName) .. ", group.leader=" .. tostring(group.leader))
+                        end
+                        local nameText = member.name or "?"
+                        if memberFullName == group.leader then
+                            nameText = "|TInterface\\GroupFrame\\UI-Group-LeaderIcon:16:16:0:4|t" .. nameText
+                        end
+                        local label = AceGUI:Create("Label")
+                        label:SetWidth(440)
+                        label:SetText(string.format("|cff%s%s|r | %s | %s | %s | %d", color, nameText, className, roleText, raceName, member.level or 0))
+                        rowGroup:AddChild(label)
+                    else
+                        if self.db and self.db.profile and self.db.profile.debug and self.db.profile.debug.enabled then
+                            self:Print("DEBUG: [CreateGroupManageFrame] Skipping invalid member row: " .. tostring(member))
+                        end
+                        local label = AceGUI:Create("Label")
+                        label:SetText("- Empty Slot -")
+                        rowGroup:AddChild(label)
                     end
-                    local crown = AceGUI:Create("Icon")
-                    crown:SetImage("Interface\\GroupFrame\\UI-Group-LeaderIcon")
-                    crown:SetImageSize(16, 16)
-                    rowGroup:AddChild(crown)
-                end
-            else
-                local label = AceGUI:Create("Label")
-                label:SetText("- Empty Slot -")
-                rowGroup:AddChild(label)
-            end
             membersGroup:AddChild(rowGroup)
         end
     else
@@ -199,19 +201,19 @@ function Grouper:CreateGroupManageFrame(group, tabType)
                 local raceName = member.race or (member.raceId and RACE_NAMES[member.raceId]) or "Human"
                 local color = CLASS_COLORS[string.upper(className)] or "FFFFFF"
                 local roleText = member.role or "?"
-                local label = AceGUI:Create("Label")
-                label:SetWidth(220)
-                label:SetText(string.format("|cff%s%s|r | %s | %s | %s | %d", color, member.name or "?", className, roleText, raceName, member.level or 0))
-                rowGroup:AddChild(label)
-                if member.leader == "yes" then
+                if member.leader == "yes" or member.leader == true then
                     if self.db and self.db.profile and self.db.profile.debug and self.db.profile.debug.enabled then
-                        self:Print("DEBUG: Adding leader crown icon for member: " .. tostring(member.name) .. " (leader == 'yes')")
+                        self:Print("DEBUG: Adding leader crown icon for member: " .. tostring(member.name) .. " (leader)")
                     end
                     local crown = AceGUI:Create("Icon")
                     crown:SetImage("Interface\\GroupFrame\\UI-Group-LeaderIcon")
                     crown:SetImageSize(16, 16)
                     rowGroup:AddChild(crown)
                 end
+                local label = AceGUI:Create("Label")
+                label:SetWidth(190)
+                label:SetText(string.format("|cff%s%s|r | %s | %s | %s | %d", color, member.name or "?", className, roleText, raceName, member.level or 0))
+                rowGroup:AddChild(label)
                 membersGroup:AddChild(rowGroup)
             end
         else
@@ -559,9 +561,18 @@ function Grouper:RefreshGroupListManage(tabType)
     end
     if not self.ManageScrollFrame then
         if self.db and self.db.profile and self.db.profile.debug and self.db.profile.debug.enabled then
-            self:Print("DEBUG: [RefreshGroupListManage] ManageScrollFrame is nil\n" .. debugstack(2, 10, 10))
+            self:Print("DEBUG: [RefreshGroupListManage] ManageScrollFrame is nil, recreating tab\n" .. debugstack(2, 10, 10))
         end
-        return
+        if self.tabGroup then
+            self.tabGroup:SelectTab("manage")
+        else
+            Grouper:CreateManageTab(self.ManageTabContainer or UIParent)
+        end
+        -- Try again after recreating
+        if not self.ManageScrollFrame then
+            self:Print("ERROR: ManageScrollFrame is still nil after recreation!")
+            return
+        end
     end
     -- Only show groups the player is a member of (myGroups logic from CreateManageTab)
     local myGroups = {}

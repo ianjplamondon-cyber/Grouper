@@ -93,23 +93,28 @@ function Grouper:CreateGroupFrame(group, tabType)
             rowGroup:SetLayout("Flow")
             rowGroup:SetFullWidth(true)
             local member = sortedMembers[i]
-            if member then
+            if type(member) == "table" and type(member.name) == "string" then
                 local className = member.class or (member.classId and CLASS_NAMES[member.classId]) or "PRIEST"
                 className = CamelCaseClass(className)
                 local raceName = member.race or (member.raceId and RACE_NAMES[member.raceId]) or "Human"
                 local color = CLASS_COLORS[string.upper(className)] or "FFFFFF"
                 local roleText = member.role or "?"
-                local label = AceGUI:Create("Label")
-                label:SetWidth(470)
-                label:SetText(string.format("|cff%s%s|r | %s | %s | %s | %d", color, member.name or "?", className, roleText, raceName, member.level or 0))
-                rowGroup:AddChild(label)
-                if member.leader == "yes" or member.leader == true then
-                    local crown = AceGUI:Create("Icon")
-                    crown:SetImage("Interface\\GroupFrame\\UI-Group-LeaderIcon")
-                    crown:SetImageSize(16, 16)
-                    rowGroup:AddChild(crown)
+                local memberFullName = Grouper.GetFullPlayerName and Grouper.GetFullPlayerName(member.name) or member.name
+                if Grouper and Grouper.db and Grouper.db.profile and Grouper.db.profile.debug and Grouper.db.profile.debug.enabled then
+                    Grouper:Print("DEBUG: [Results] member=" .. tostring(member.name) .. ", memberFullName=" .. tostring(memberFullName) .. ", group.leader=" .. tostring(group.leader))
                 end
+                local nameText = member.name or "?"
+                if memberFullName == group.leader then
+                    nameText = "|TInterface\\GroupFrame\\UI-Group-LeaderIcon:16:16:0:4|t" .. nameText
+                end
+                local label = AceGUI:Create("Label")
+                label:SetWidth(440)
+                label:SetText(string.format("|cff%s%s|r | %s | %s | %s | %d", color, nameText, className, roleText, raceName, member.level or 0))
+                rowGroup:AddChild(label)
             else
+                if Grouper and Grouper.db and Grouper.db.profile and Grouper.db.profile.debug and Grouper.db.profile.debug.enabled then
+                    Grouper:Print("DEBUG: [RefreshGroupListResults] Skipping invalid member row: " .. tostring(member))
+                end
                 local label = AceGUI:Create("Label")
                 label:SetWidth(470)
                 label:SetText("- Empty Slot -")
@@ -449,9 +454,18 @@ function Grouper:RefreshGroupListResults(tabType)
     end
     if not self.ResultsScrollFrame then
         if self.db and self.db.profile and self.db.profile.debug and self.db.profile.debug.enabled then
-            self:Print("DEBUG: [RefreshGroupListResults] ResultsScrollFrame is nil\n" .. debugstack(2, 10, 10))
+            self:Print("DEBUG: [RefreshGroupListResults] ResultsScrollFrame is nil, recreating tab\n" .. debugstack(2, 10, 10))
         end
-        return
+        if self.tabGroup then
+            self.tabGroup:SelectTab("results")
+        else
+            Grouper:CreateResultsTab(self.ResultsTabContainer or UIParent)
+        end
+        -- Try again after recreating
+        if not self.ResultsScrollFrame then
+            self:Print("ERROR: ResultsScrollFrame is still nil after recreation!")
+            return
+        end
     end
     if self.db and self.db.profile and self.db.profile.debug and self.db.profile.debug.enabled then
         self:Print("DEBUG: 🔄 Groups in memory:")
