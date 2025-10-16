@@ -56,10 +56,45 @@ function Grouper:CreateBrowseTab(container)
             self.db.profile.filters.dungeonTypes[typeInfo.key] = value
             self:RefreshGroupListResults()
         end)
+        -- Add tooltips for Dungeon, Quest, and Other
+        if typeInfo.key == "dungeon" then
+            checkbox.frame:EnableMouse(true)
+            checkbox.frame:SetScript("OnEnter", function()
+                GameTooltip:SetOwner(checkbox.frame, "ANCHOR_TOP")
+                GameTooltip:SetText("Dungeon Groups", 1, 1, 1)
+                GameTooltip:AddLine("Show groups looking for dungeons.", nil, nil, nil, true)
+                GameTooltip:Show()
+            end)
+            checkbox.frame:SetScript("OnLeave", function()
+                GameTooltip:Hide()
+            end)
+        elseif typeInfo.key == "quest" then
+            checkbox.frame:EnableMouse(true)
+            checkbox.frame:SetScript("OnEnter", function()
+                GameTooltip:SetOwner(checkbox.frame, "ANCHOR_TOP")
+                GameTooltip:SetText("Quest Groups", 1, 1, 1)
+                GameTooltip:AddLine("Show groups looking for questing partners.", nil, nil, nil, true)
+                GameTooltip:Show()
+            end)
+            checkbox.frame:SetScript("OnLeave", function()
+                GameTooltip:Hide()
+            end)
+        elseif typeInfo.key == "other" then
+            checkbox.frame:EnableMouse(true)
+            checkbox.frame:SetScript("OnEnter", function()
+                GameTooltip:SetOwner(checkbox.frame, "ANCHOR_TOP")
+                GameTooltip:SetText("Other Groups", 1, 1, 1)
+                GameTooltip:AddLine("Show groups for other activities (faction grinding, etc.).", nil, nil, nil, true)
+                GameTooltip:Show()
+            end)
+            checkbox.frame:SetScript("OnLeave", function()
+                GameTooltip:Hide()
+            end)
+        end
         typeGroup:AddChild(checkbox)
     end
     
-    -- Role filter dropdown
+    -- Role filter dropdown with centered label
     local roleFilterDropdown = AceGUI:Create("Dropdown")
     roleFilterDropdown:SetLabel("Filter by Role")
     roleFilterDropdown:SetList({
@@ -70,16 +105,40 @@ function Grouper:CreateBrowseTab(container)
     })
     roleFilterDropdown:SetValue(self.db.profile.filters.role or "any")
     roleFilterDropdown:SetWidth(120)
+    if roleFilterDropdown.label then roleFilterDropdown.label:SetJustifyH("CENTER") end
+    -- Tooltip for Filter by Role
+    roleFilterDropdown.frame:EnableMouse(true)
+    roleFilterDropdown.frame:SetScript("OnEnter", function()
+        GameTooltip:SetOwner(roleFilterDropdown.frame, "ANCHOR_TOP")
+        GameTooltip:SetText("Filter by Role", 1, 1, 1)
+        GameTooltip:AddLine("Show groups with the selected role slot available.", nil, nil, nil, true)
+        GameTooltip:Show()
+    end)
+    roleFilterDropdown.frame:SetScript("OnLeave", function()
+        GameTooltip:Hide()
+    end)
     roleFilterDropdown:SetCallback("OnValueChanged", function(widget, event, value)
         self.db.profile.filters.role = value
         self:RefreshGroupListResults()
     end)
     filterGroup:AddChild(roleFilterDropdown)
-    -- Dungeon filter dropdown
+    -- Dungeon filter dropdown with centered label
     local dungeonFilter = AceGUI:Create("Dropdown")
     dungeonFilter:SetLabel("Filter by Dungeon")
     dungeonFilter:SetWidth(180) -- Reduced from 200
-    
+    if dungeonFilter.label then dungeonFilter.label:SetJustifyH("CENTER") end
+    -- Tooltip for Filter by Dungeon
+    dungeonFilter.frame:EnableMouse(true)
+    dungeonFilter.frame:SetScript("OnEnter", function()
+        GameTooltip:SetOwner(dungeonFilter.frame, "ANCHOR_TOP")
+        GameTooltip:SetText("Filter by Dungeon", 1, 1, 1)
+        GameTooltip:AddLine("Only show groups for a specific dungeon.", nil, nil, nil, true)
+        GameTooltip:Show()
+    end)
+    dungeonFilter.frame:SetScript("OnLeave", function()
+        GameTooltip:Hide()
+    end)
+
     -- Build dungeon list for dropdown
     local dungeonList = {[""] = "All Dungeons"}
     for _, dungeon in ipairs(DUNGEONS) do
