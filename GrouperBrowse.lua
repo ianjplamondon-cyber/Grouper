@@ -17,18 +17,6 @@ function Grouper:CreateBrowseTab(container)
         self.db.profile.filters.minLevel = value
         self:RefreshGroupListResults()
     end)
-    -- Add tooltip to min level slider label
-    if minLevelSlider.label then
-        minLevelSlider.label:EnableMouse(true)
-        minLevelSlider.label:SetScript("OnEnter", function()
-            GameTooltip:SetOwner(minLevelSlider.label, "ANCHOR_RIGHT")
-            GameTooltip:SetText("Set the minimum player level for group search results.", 1, 1, 1, 1, true)
-            GameTooltip:Show()
-        end)
-        minLevelSlider.label:SetScript("OnLeave", function()
-            GameTooltip:Hide()
-        end)
-    end
     filterGroup:AddChild(minLevelSlider)
     
     local maxLevelSlider = AceGUI:Create("Slider")
@@ -40,18 +28,6 @@ function Grouper:CreateBrowseTab(container)
         self.db.profile.filters.maxLevel = value
         self:RefreshGroupListResults()
     end)
-    -- Add tooltip to max level slider label
-    if maxLevelSlider.label then
-        maxLevelSlider.label:EnableMouse(true)
-        maxLevelSlider.label:SetScript("OnEnter", function()
-            GameTooltip:SetOwner(maxLevelSlider.label, "ANCHOR_RIGHT")
-            GameTooltip:SetText("Set the maximum player level for group search results.", 1, 1, 1, 1, true)
-            GameTooltip:Show()
-        end)
-        maxLevelSlider.label:SetScript("OnLeave", function()
-            GameTooltip:Hide()
-        end)
-    end
     filterGroup:AddChild(maxLevelSlider)
     
     -- Group type checkboxes
@@ -76,38 +52,6 @@ function Grouper:CreateBrowseTab(container)
         if typeInfo.key == "raid" or typeInfo.key == "pvp" then
             checkbox:SetDisabled(true)
         end
-        -- Add tooltips for Dungeon, Quest, and Other
-        if typeInfo.key == "dungeon" then
-            checkbox.frame:EnableMouse(true)
-            checkbox.frame:SetScript("OnEnter", function()
-                GameTooltip:SetOwner(checkbox.frame, "ANCHOR_RIGHT")
-                GameTooltip:SetText("Show dungeon groups.", 1, 1, 1, 1, true)
-                GameTooltip:Show()
-            end)
-            checkbox.frame:SetScript("OnLeave", function()
-                GameTooltip:Hide()
-            end)
-        elseif typeInfo.key == "quest" then
-            checkbox.frame:EnableMouse(true)
-            checkbox.frame:SetScript("OnEnter", function()
-                GameTooltip:SetOwner(checkbox.frame, "ANCHOR_RIGHT")
-                GameTooltip:SetText("Show quest groups.", 1, 1, 1, 1, true)
-                GameTooltip:Show()
-            end)
-            checkbox.frame:SetScript("OnLeave", function()
-                GameTooltip:Hide()
-            end)
-        elseif typeInfo.key == "other" then
-            checkbox.frame:EnableMouse(true)
-            checkbox.frame:SetScript("OnEnter", function()
-                GameTooltip:SetOwner(checkbox.frame, "ANCHOR_RIGHT")
-                GameTooltip:SetText("Show other (miscellaneous) groups.", 1, 1, 1, 1, true)
-                GameTooltip:Show()
-            end)
-            checkbox.frame:SetScript("OnLeave", function()
-                GameTooltip:Hide()
-            end)
-        end
         checkbox:SetCallback("OnValueChanged", function(widget, event, value)
             self.db.profile.filters.dungeonTypes[typeInfo.key] = value
             self:RefreshGroupListResults()
@@ -118,13 +62,6 @@ function Grouper:CreateBrowseTab(container)
     -- Role filter dropdown
     local roleFilterDropdown = AceGUI:Create("Dropdown")
     roleFilterDropdown:SetLabel("Filter by Role")
-    if roleFilterDropdown.label then
-        if roleFilterDropdown.label.SetJustifyH then
-            roleFilterDropdown.label:SetJustifyH("CENTER")
-        elseif roleFilterDropdown.label.SetTextAlign then
-            roleFilterDropdown.label:SetTextAlign("CENTER")
-        end
-    end
     roleFilterDropdown:SetList({
         any = "Any",
         tank = "Tank",
@@ -137,27 +74,10 @@ function Grouper:CreateBrowseTab(container)
         self.db.profile.filters.role = value
         self:RefreshGroupListResults()
     end)
-    -- Add tooltip for role filter dropdown
-    roleFilterDropdown.frame:EnableMouse(true)
-    roleFilterDropdown.frame:SetScript("OnEnter", function()
-        GameTooltip:SetOwner(roleFilterDropdown.frame, "ANCHOR_RIGHT")
-        GameTooltip:SetText("Filter results to only show groups seeking this role.", 1, 1, 1, 1, true)
-        GameTooltip:Show()
-    end)
-    roleFilterDropdown.frame:SetScript("OnLeave", function()
-        GameTooltip:Hide()
-    end)
     filterGroup:AddChild(roleFilterDropdown)
     -- Dungeon filter dropdown
     local dungeonFilter = AceGUI:Create("Dropdown")
     dungeonFilter:SetLabel("Filter by Dungeon")
-    if dungeonFilter.label then
-        if dungeonFilter.label.SetJustifyH then
-            dungeonFilter.label:SetJustifyH("CENTER")
-        elseif dungeonFilter.label.SetTextAlign then
-            dungeonFilter.label:SetTextAlign("CENTER")
-        end
-    end
     dungeonFilter:SetWidth(180) -- Reduced from 200
     
     -- Build dungeon list for dropdown
@@ -173,21 +93,11 @@ function Grouper:CreateBrowseTab(container)
         self.selectedDungeonFilter = value
         self:RefreshGroupListResults()
     end)
-    -- Add tooltip for dungeon filter dropdown
-    dungeonFilter.frame:EnableMouse(true)
-    dungeonFilter.frame:SetScript("OnEnter", function()
-        GameTooltip:SetOwner(dungeonFilter.frame, "ANCHOR_RIGHT")
-        GameTooltip:SetText("Filter results to only show groups for a specific dungeon.", 1, 1, 1, 1, true)
-        GameTooltip:Show()
-    end)
-    dungeonFilter.frame:SetScript("OnLeave", function()
-        GameTooltip:Hide()
-    end)
     filterGroup:AddChild(dungeonFilter)
     
     -- Refresh button
     local refreshButton = AceGUI:Create("Button")
-    refreshButton:SetText("Search")
+    refreshButton:SetText("Refresh")
     refreshButton:SetWidth(80)
     refreshButton:SetCallback("OnClick", function()
         if self.db.profile.debug.enabled then
@@ -224,16 +134,6 @@ function Grouper:CreateBrowseTab(container)
             self:RefreshGroupListResults()
         end, 15)
         --]]
-    end)
-    -- Add tooltip to Search button (only in filters tab)
-    refreshButton.frame:EnableMouse(true)
-    refreshButton.frame:SetScript("OnEnter", function()
-        GameTooltip:SetOwner(refreshButton.frame, "ANCHOR_RIGHT")
-        GameTooltip:SetText("Request updated group listings from other players.", 1, 1, 1, 1, true)
-        GameTooltip:Show()
-    end)
-    refreshButton.frame:SetScript("OnLeave", function()
-        GameTooltip:Hide()
     end)
     filterGroup:AddChild(refreshButton)
     --[[

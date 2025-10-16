@@ -797,12 +797,6 @@ end
 -- Utility to get full player name with realm, always using exact realm format
 function Grouper.GetFullPlayerName(name, realm)
     if not name then return "" end
-    if type(name) ~= "string" then
-        if Grouper and Grouper.db and Grouper.db.profile and Grouper.db.profile.debug and Grouper.db.profile.debug.enabled then
-            Grouper:Print("DEBUG: GetFullPlayerName called with non-string value: " .. tostring(name))
-        end
-        return tostring(name or "")
-    end
     -- If name already contains a dash, treat as full name and normalize realm part
     if name:find("-") and (not realm or realm == "") then
         local base, r = name:match("^(.-)%-(.+)$")

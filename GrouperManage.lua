@@ -157,32 +157,30 @@ function Grouper:CreateGroupManageFrame(group, tabType)
             rowGroup:SetLayout("Flow")
             rowGroup:SetFullWidth(true)
             local member = sortedMembers[i]
-                    if type(member) == "table" and type(member.name) == "string" then
-                        local className = member.class or (member.classId and CLASS_NAMES[member.classId]) or "PRIEST"
-                        className = CamelCaseClass(className)
-                        local raceName = member.race or (member.raceId and RACE_NAMES[member.raceId]) or "Human"
-                        local color = CLASS_COLORS[string.upper(className)] or "FFFFFF"
-                        local roleText = CapitalizeRole(member.role) or "?"
-                        local memberFullName = Grouper.GetFullPlayerName and Grouper.GetFullPlayerName(member.name) or member.name
-                        if self.db and self.db.profile and self.db.profile.debug and self.db.profile.debug.enabled then
-                            self:Print("DEBUG: [Manage] member=" .. tostring(member.name) .. ", memberFullName=" .. tostring(memberFullName) .. ", group.leader=" .. tostring(group.leader))
-                        end
-                        local nameText = member.name or "?"
-                        if memberFullName == group.leader then
-                            nameText = "|TInterface\\GroupFrame\\UI-Group-LeaderIcon:16:16:0:4|t" .. nameText
-                        end
-                        local label = AceGUI:Create("Label")
-                        label:SetWidth(440)
-                        label:SetText(string.format("|cff%s%s|r | %s | %s | %s | %d", color, nameText, className, roleText, raceName, member.level or 0))
-                        rowGroup:AddChild(label)
-                    else
-                        if self.db and self.db.profile and self.db.profile.debug and self.db.profile.debug.enabled then
-                            self:Print("DEBUG: [CreateGroupManageFrame] Skipping invalid member row: " .. tostring(member))
-                        end
-                        local label = AceGUI:Create("Label")
-                        label:SetText("- Empty Slot -")
-                        rowGroup:AddChild(label)
+            if member then
+                local className = member.class or (member.classId and CLASS_NAMES[member.classId]) or "PRIEST"
+                className = CamelCaseClass(className)
+                local raceName = member.race or (member.raceId and RACE_NAMES[member.raceId]) or "Human"
+                local color = CLASS_COLORS[string.upper(className)] or "FFFFFF"
+                local roleText = CapitalizeRole(member.role) or "?"
+                local label = AceGUI:Create("Label")
+                label:SetWidth(470)
+                label:SetText(string.format("|cff%s%s|r | %s | %s | %s | %d", color, member.name or "?", className, roleText, raceName, member.level or 0))
+                rowGroup:AddChild(label)
+                if member.leader == "yes" then
+                    if self.db and self.db.profile and self.db.profile.debug and self.db.profile.debug.enabled then
+                        self:Print("DEBUG: Adding leader crown icon for member: " .. tostring(member.name) .. " (leader)")
                     end
+                    local crown = AceGUI:Create("Icon")
+                    crown:SetImage("Interface\\GroupFrame\\UI-Group-LeaderIcon")
+                    crown:SetImageSize(16, 16)
+                    rowGroup:AddChild(crown)
+                end
+            else
+                local label = AceGUI:Create("Label")
+                label:SetText("- Empty Slot -")
+                rowGroup:AddChild(label)
+            end
             membersGroup:AddChild(rowGroup)
         end
     else
@@ -201,19 +199,19 @@ function Grouper:CreateGroupManageFrame(group, tabType)
                 local raceName = member.race or (member.raceId and RACE_NAMES[member.raceId]) or "Human"
                 local color = CLASS_COLORS[string.upper(className)] or "FFFFFF"
                 local roleText = member.role or "?"
-                if member.leader == "yes" or member.leader == true then
+                local label = AceGUI:Create("Label")
+                label:SetWidth(220)
+                label:SetText(string.format("|cff%s%s|r | %s | %s | %s | %d", color, member.name or "?", className, roleText, raceName, member.level or 0))
+                rowGroup:AddChild(label)
+                if member.leader == "yes" then
                     if self.db and self.db.profile and self.db.profile.debug and self.db.profile.debug.enabled then
-                        self:Print("DEBUG: Adding leader crown icon for member: " .. tostring(member.name) .. " (leader)")
+                        self:Print("DEBUG: Adding leader crown icon for member: " .. tostring(member.name) .. " (leader == 'yes')")
                     end
                     local crown = AceGUI:Create("Icon")
                     crown:SetImage("Interface\\GroupFrame\\UI-Group-LeaderIcon")
                     crown:SetImageSize(16, 16)
                     rowGroup:AddChild(crown)
                 end
-                local label = AceGUI:Create("Label")
-                label:SetWidth(190)
-                label:SetText(string.format("|cff%s%s|r | %s | %s | %s | %d", color, member.name or "?", className, roleText, raceName, member.level or 0))
-                rowGroup:AddChild(label)
                 membersGroup:AddChild(rowGroup)
             end
         else
@@ -241,17 +239,6 @@ function Grouper:CreateGroupManageFrame(group, tabType)
             editButton:SetCallback("OnClick", function()
                 self:ShowEditGroupDialog(group)
             end)
-            -- Tooltip for Edit button
-            editButton.frame:EnableMouse(true)
-            editButton.frame:SetScript("OnEnter", function()
-                GameTooltip:SetOwner(editButton.frame, "ANCHOR_RIGHT")
-                GameTooltip:SetText("Edit this group", 1, 1, 1)
-                GameTooltip:AddLine("Change group details, roles, or members.", 0.9, 0.9, 0.9)
-                GameTooltip:Show()
-            end)
-            editButton.frame:SetScript("OnLeave", function()
-                GameTooltip:Hide()
-            end)
             buttonGroup:AddChild(editButton)
 
             local removeButton = AceGUI:Create("Button")
@@ -275,17 +262,6 @@ function Grouper:CreateGroupManageFrame(group, tabType)
                     self.tabGroup:SelectTab("manage")
                 end
             end)
-            -- Tooltip for Remove button
-            removeButton.frame:EnableMouse(true)
-            removeButton.frame:SetScript("OnEnter", function()
-                GameTooltip:SetOwner(removeButton.frame, "ANCHOR_RIGHT")
-                GameTooltip:SetText("Remove this group", 1, 1, 1)
-                GameTooltip:AddLine("Delete this group from Grouper.", 0.9, 0.9, 0.9)
-                GameTooltip:Show()
-            end)
-            removeButton.frame:SetScript("OnLeave", function()
-                GameTooltip:Hide()
-            end)
             buttonGroup:AddChild(removeButton)
 
             local syncButton = AceGUI:Create("Button")
@@ -296,17 +272,6 @@ function Grouper:CreateGroupManageFrame(group, tabType)
                     self:Print("DEBUG: Sync button clicked! Broadcasting group update...")
                 end
                 Grouper:SendGroupUpdateViaChannel(group)
-            end)
-            -- Tooltip for Sync button
-            syncButton.frame:EnableMouse(true)
-            syncButton.frame:SetScript("OnEnter", function()
-                GameTooltip:SetOwner(syncButton.frame, "ANCHOR_RIGHT")
-                GameTooltip:SetText("Sync with WoW group", 1, 1, 1)
-                GameTooltip:AddLine("Push group updates to the server.", 0.9, 0.9, 0.9)
-                GameTooltip:Show()
-            end)
-            syncButton.frame:SetScript("OnLeave", function()
-                GameTooltip:Hide()
             end)
             buttonGroup:AddChild(syncButton)
         end
@@ -487,10 +452,10 @@ function Grouper:HandleJoinedGroupManage()
                 if playerInfo and playerInfo.groupId == groupId and playerInfo.lastSeen then
                     -- Set leader attribute
                     if normKey == groupLeader then
-                        playerInfo.leader = true
+                        playerInfo.leader = "yes"
                         leaderFound = true
                     else
-                        playerInfo.leader = false
+                        playerInfo.leader = "no"
                     end
                     self.players[normKey].leader = playerInfo.leader
                     table.insert(group.members, {
@@ -528,14 +493,14 @@ function Grouper:HandleJoinedGroupManage()
                 end
                 local myRole = leaderInfo and leaderInfo.role or "?"
                 self.players[normLeader] = self.players[normLeader] or {}
-                self.players[normLeader].leader = true
+                self.players[normLeader].leader = "yes"
                 table.insert(group.members, {
                     name = normLeader,
                     class = CamelCaseClass(leaderInfo and leaderInfo.class or UnitClass("player") or "?"),
                     role = CamelCaseRole(myRole or "?"),
                     race = leaderInfo and leaderInfo.race or UnitRace("player") or "?",
                     level = leaderInfo and leaderInfo.level or UnitLevel("player") or "?",
-                    leader = true
+                    leader = "yes"
                 })
             end
         end
@@ -561,18 +526,9 @@ function Grouper:RefreshGroupListManage(tabType)
     end
     if not self.ManageScrollFrame then
         if self.db and self.db.profile and self.db.profile.debug and self.db.profile.debug.enabled then
-            self:Print("DEBUG: [RefreshGroupListManage] ManageScrollFrame is nil, recreating tab\n" .. debugstack(2, 10, 10))
+            self:Print("DEBUG: [RefreshGroupListManage] ManageScrollFrame is nil\n" .. debugstack(2, 10, 10))
         end
-        if self.tabGroup then
-            self.tabGroup:SelectTab("manage")
-        else
-            Grouper:CreateManageTab(self.ManageTabContainer or UIParent)
-        end
-        -- Try again after recreating
-        if not self.ManageScrollFrame then
-            self:Print("ERROR: ManageScrollFrame is still nil after recreation!")
-            return
-        end
+        return
     end
     -- Only show groups the player is a member of (myGroups logic from CreateManageTab)
     local myGroups = {}

@@ -93,28 +93,26 @@ function Grouper:CreateGroupFrame(group, tabType)
             rowGroup:SetLayout("Flow")
             rowGroup:SetFullWidth(true)
             local member = sortedMembers[i]
-            if type(member) == "table" and type(member.name) == "string" then
+            if member then
                 local className = member.class or (member.classId and CLASS_NAMES[member.classId]) or "PRIEST"
                 className = CamelCaseClass(className)
                 local raceName = member.race or (member.raceId and RACE_NAMES[member.raceId]) or "Human"
                 local color = CLASS_COLORS[string.upper(className)] or "FFFFFF"
                 local roleText = member.role or "?"
-                local memberFullName = Grouper.GetFullPlayerName and Grouper.GetFullPlayerName(member.name) or member.name
-                if Grouper and Grouper.db and Grouper.db.profile and Grouper.db.profile.debug and Grouper.db.profile.debug.enabled then
-                    Grouper:Print("DEBUG: [Results] member=" .. tostring(member.name) .. ", memberFullName=" .. tostring(memberFullName) .. ", group.leader=" .. tostring(group.leader))
-                end
-                local nameText = member.name or "?"
-                if memberFullName == group.leader then
-                    nameText = "|TInterface\\GroupFrame\\UI-Group-LeaderIcon:16:16:0:4|t" .. nameText
-                end
                 local label = AceGUI:Create("Label")
-                label:SetWidth(440)
-                label:SetText(string.format("|cff%s%s|r | %s | %s | %s | %d", color, nameText, className, roleText, raceName, member.level or 0))
+                label:SetWidth(470)
+                label:SetText(string.format("|cff%s%s|r | %s | %s | %s | %d", color, member.name or "?", className, roleText, raceName, member.level or 0))
                 rowGroup:AddChild(label)
-            else
-                if Grouper and Grouper.db and Grouper.db.profile and Grouper.db.profile.debug and Grouper.db.profile.debug.enabled then
-                    Grouper:Print("DEBUG: [RefreshGroupListResults] Skipping invalid member row: " .. tostring(member))
+                    -- Show leader crown if member.leader == "yes" OR member.name matches group.leader
+                    local normalizedMemberName = member.name and string.gsub(string.lower(member.name), "-", "") or ""
+                    local normalizedGroupLeader = group.leader and string.gsub(string.lower(group.leader), "-", "") or ""
+                    if member.leader == "yes" or (normalizedMemberName ~= "" and normalizedGroupLeader ~= "" and normalizedMemberName == normalizedGroupLeader) then
+                        local crown = AceGUI:Create("Icon")
+                        crown:SetImage("Interface\\GroupFrame\\UI-Group-LeaderIcon")
+                        crown:SetImageSize(16, 16)
+                        rowGroup:AddChild(crown)
                 end
+            else
                 local label = AceGUI:Create("Label")
                 label:SetWidth(470)
                 label:SetText("- Empty Slot -")
@@ -183,16 +181,6 @@ function Grouper:CreateGroupFrame(group, tabType)
                 end
             end
         end)
-        -- Tooltip for Whisper Leader button
-        whisperButton.frame:EnableMouse(true)
-        whisperButton.frame:SetScript("OnEnter", function()
-            GameTooltip:SetOwner(whisperButton.frame, "ANCHOR_RIGHT")
-            GameTooltip:SetText("Send a whisper to the group leader.", 1, 1, 1, 1, true)
-            GameTooltip:Show()
-        end)
-        whisperButton.frame:SetScript("OnLeave", function()
-            GameTooltip:Hide()
-        end)
         buttonGroup:AddChild(whisperButton)
 
         -- Role dropdown to the right of Auto-Join button
@@ -203,7 +191,6 @@ function Grouper:CreateGroupFrame(group, tabType)
             healer = "Healer",
             dps = "DPS"
         })
-        -- Tooltip logic removed; only present in search filters tab (Browse)
         -- Restore last selected role from SV if available
         local lastRole = self.db and self.db.profile and self.db.profile.lastRole
         if lastRole and (lastRole == "tank" or lastRole == "healer" or lastRole == "dps") then
@@ -315,16 +302,6 @@ function Grouper:CreateGroupFrame(group, tabType)
                        end
                    end
                end
-        end)
-        -- Tooltip for Auto-Join button
-        autoJoinButton.frame:EnableMouse(true)
-        autoJoinButton.frame:SetScript("OnEnter", function()
-            GameTooltip:SetOwner(autoJoinButton.frame, "ANCHOR_RIGHT")
-            GameTooltip:SetText("Request to join this group.", 1, 1, 1, 1, true)
-            GameTooltip:Show()
-        end)
-        autoJoinButton.frame:SetScript("OnLeave", function()
-            GameTooltip:Hide()
         end)
         buttonGroup:AddChild(autoJoinButton)
     end
@@ -454,18 +431,9 @@ function Grouper:RefreshGroupListResults(tabType)
     end
     if not self.ResultsScrollFrame then
         if self.db and self.db.profile and self.db.profile.debug and self.db.profile.debug.enabled then
-            self:Print("DEBUG: [RefreshGroupListResults] ResultsScrollFrame is nil, recreating tab\n" .. debugstack(2, 10, 10))
+            self:Print("DEBUG: [RefreshGroupListResults] ResultsScrollFrame is nil\n" .. debugstack(2, 10, 10))
         end
-        if self.tabGroup then
-            self.tabGroup:SelectTab("results")
-        else
-            Grouper:CreateResultsTab(self.ResultsTabContainer or UIParent)
-        end
-        -- Try again after recreating
-        if not self.ResultsScrollFrame then
-            self:Print("ERROR: ResultsScrollFrame is still nil after recreation!")
-            return
-        end
+        return
     end
     if self.db and self.db.profile and self.db.profile.debug and self.db.profile.debug.enabled then
         self:Print("DEBUG: 🔄 Groups in memory:")

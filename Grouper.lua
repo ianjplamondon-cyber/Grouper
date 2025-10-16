@@ -113,7 +113,7 @@ function Grouper:ExternalInvite(name)
             self.players[fullName].level = member.level
             self.players[fullName].role = selectedRole
             self.players[fullName].groupId = leaderGroupId
-            self.players[fullName].leader = false
+            self.players[fullName].leader = "no"
             -- Add to group.members if not already present
             local alreadyInGroup = false
             for _, m in ipairs(group.members) do
@@ -129,7 +129,7 @@ function Grouper:ExternalInvite(name)
                     race = member.race,
                     level = member.level,
                     role = selectedRole,
-                    leader = false
+                    leader = "no"
                 })
             end
             -- Broadcast group update and refresh UI
@@ -781,7 +781,7 @@ function Grouper:CreateGroup(groupData)
                     self.players[normFullName].level = level or "?"
                     self.players[normFullName].role = role
                     self.players[normFullName].lastSeen = time()
-                    self.players[normFullName].leader = false -- Always set to false for non-leader
+                    self.players[normFullName].leader = "no" -- Always set to 'no' for non-leader
                     self.players[normFullName].groupId = group and group.id or nil -- Track group membership
                     -- Sync to self.playerInfo if this is the local player
                     if fullName == Grouper.GetFullPlayerName(UnitName("player")) then
@@ -819,12 +819,14 @@ function Grouper:CreateGroup(groupData)
             if not memberFullName and playerInfo.name and playerInfo.realm then
                 memberFullName = Grouper.GetFullPlayerName(playerInfo.name, playerInfo.realm)
             end
+            local isLeader = (memberFullName or playerName) == Grouper.GetFullPlayerName(UnitName("player"))
             table.insert(members, {
                 name = memberFullName or playerName,
                 class = playerInfo.class or "?",
                 race = playerInfo.race or "?",
                 level = playerInfo.level or "?",
-                role = CamelCaseRole(playerInfo.role or "None")
+                role = CamelCaseRole(playerInfo.role or "None"),
+                leader = isLeader and "yes" or "no"
             })
         end
     end
@@ -896,10 +898,10 @@ function Grouper:CreateGroup(groupData)
                     end
                 end
                 -- Always set leader to true for the leader
-                info.leader = true
+                info.leader = "yes"
             else
                 -- Always set leader to false for non-leaders
-                info.leader = false
+                info.leader = "no"
             end
         end
         if not found and self.db and self.db.profile and self.db.profile.debug and self.db.profile.debug.enabled then
@@ -1662,28 +1664,6 @@ function Grouper:CreateMainWindowContent()
     
     self.tabGroup = tabGroup
 
-    -- Add tooltips to tab labels (TabGroup) immediately so they work on first load
-    if self.tabGroup and not self._tabTooltipsHooked then
-        self.tabGroup._tabTooltipsHooked = true
-        self.tabGroup:SetCallback("OnTabEnter", function(widget, event, tabValue, frame)
-            local tooltips = {
-                browse = "Set filters to narrow your group search.",
-                results = "View groups that match your filters.",
-                create = "Create a new group and broadcast it.",
-                manage = "View and manage groups you lead or have joined."
-            }
-            local tip = tooltips[tabValue]
-            if tip and frame then
-                GameTooltip:SetOwner(frame, "ANCHOR_RIGHT")
-                GameTooltip:SetText(tip, 1, 1, 1, 1, true)
-                GameTooltip:Show()
-            end
-        end)
-        self.tabGroup:SetCallback("OnTabLeave", function(widget, event, tabValue, frame)
-            GameTooltip:Hide()
-        end)
-    end
-
     -- No persistent scroll frames needed; each tab creates its own
 end
 
@@ -1700,9 +1680,8 @@ function Grouper:ShowTab(container, tabName)
     elseif tabName == "manage" then
         self:CreateManageTab(container)
     elseif tabName == "results" then
-        self:CreateResultsTab(container) -- New case for results tab
+    self:CreateResultsTab(container) -- New case for results tab
     end
-
 
 end
 
