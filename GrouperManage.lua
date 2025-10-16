@@ -525,15 +525,16 @@ function Grouper:RefreshGroupListManage(tabType)
         end
         return
     end
-    -- Only show groups the player is a member of (myGroups logic from CreateManageTab)
+    -- Only show groups the player is a member of (strict myGroups logic from CreateManageTab)
     local myGroups = {}
     local localPlayer = Grouper.GetFullPlayerName(UnitName("player"))
     local normLocalPlayer = Grouper.NormalizeFullPlayerName(localPlayer)
+    local myCurrentGroupId = self.playerInfo and self.playerInfo.groupId or nil
     for _, group in pairs(self.groups) do
         if group.members and type(group.members) == "table" then
             for _, member in ipairs(group.members) do
                 local normMember = Grouper.NormalizeFullPlayerName(member.name)
-                if normMember == normLocalPlayer then
+                if normMember == normLocalPlayer and (not myCurrentGroupId or group.id == myCurrentGroupId) then
                     table.insert(myGroups, group)
                     break
                 end

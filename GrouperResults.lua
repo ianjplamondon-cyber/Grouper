@@ -110,7 +110,15 @@ function Grouper:CreateGroupFrame(group, tabType)
             else
                 local label = AceGUI:Create("Label")
                 label:SetWidth(470)
-                label:SetText("- Empty Slot -")
+                local slotText = "- Empty Slot -"
+                if i == 1 then
+                    slotText = "<Tank>"
+                elseif i == 2 then
+                    slotText = "<Healer>"
+                elseif i >= 3 and i <= 5 then
+                    slotText = "<DPS>"
+                end
+                label:SetText(slotText)
                 rowGroup:AddChild(label)
             end
             membersGroup:AddChild(rowGroup)
