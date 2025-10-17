@@ -1664,6 +1664,28 @@ function Grouper:CreateMainWindowContent()
     
     self.tabGroup = tabGroup
 
+    -- Add tooltips to tab labels (TabGroup) immediately so they work on first load
+    if self.tabGroup and not self._tabTooltipsHooked then
+        self.tabGroup._tabTooltipsHooked = true
+        self.tabGroup:SetCallback("OnTabEnter", function(widget, event, tabValue, frame)
+            local tooltips = {
+                browse = "Set filters to narrow your group search.",
+                results = "View groups that match your filters.",
+                create = "Create a new group and broadcast it.",
+                manage = "View and manage groups you lead or have joined."
+            }
+            local tip = tooltips[tabValue]
+            if tip and frame then
+                GameTooltip:SetOwner(frame, "ANCHOR_RIGHT")
+                GameTooltip:SetText(tip, 1, 1, 1, 1, true)
+                GameTooltip:Show()
+            end
+        end)
+        self.tabGroup:SetCallback("OnTabLeave", function(widget, event, tabValue, frame)
+            GameTooltip:Hide()
+        end)
+    end
+
     -- No persistent scroll frames needed; each tab creates its own
 end
 
