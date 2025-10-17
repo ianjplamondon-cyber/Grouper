@@ -53,6 +53,25 @@ function VC:Enable(hostAddon)
     if hostAddon and hostAddon.GetName then
         hostName = hostAddon:GetName()
     end
+    -- Use a host-add-on-specific comm prefix so multiple addons using VersionCheck don't collide.
+    -- Prefer the addon's TOC Title if available, otherwise fall back to the addon name.
+    local title = nil
+    if GetAddOnMetadata and hostName then
+        title = GetAddOnMetadata(hostName, "Title")
+    end
+    local base = title or hostName or "UNKNOWN"
+    base = base:gsub("%s", "") -- remove whitespace
+    base = (base == "" and "UNKNOWN") or base
+    base = base:upper()
+    -- AceComm prefixes are limited to 16 characters. Use short suffixes so final prefixes stay <=16.
+    local suffixReq = "_VC" -- 3 chars
+    local respSuffix = "_VR" -- 3 chars
+    local maxBaseLen = 16 - string.len(suffixReq)
+    if #base > maxBaseLen then
+        base = base:sub(1, maxBaseLen)
+    end
+    self.PREFIX = base .. suffixReq
+    self.RESPONSE_PREFIX = base .. respSuffix
     VCPrint("Enable called for hostAddon: " .. tostring(hostName))
     AceComm:RegisterComm(self.PREFIX, function(prefix, message, distribution, sender)
         VCPrint("Received message on prefix: " .. tostring(prefix) .. " from " .. tostring(sender))

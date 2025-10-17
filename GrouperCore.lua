@@ -193,6 +193,13 @@ COMM_PREFIX = "GRPR"
 ADDON_CHANNEL = "Grouper"
 ADDON_VERSION = "1.0.0"
 
+-- Expose a Version property on the addon object strictly from the TOC `## Version:`
+if GetAddOnMetadata then
+    Grouper.Version = GetAddOnMetadata("Grouper", "Version")
+else
+    Grouper.Version = nil
+end
+
 -- String utility functions
 if not string.trim then
     function string:trim()
@@ -395,6 +402,17 @@ function Grouper:OnInitialize()
         end,
     })
     LibDBIcon:Register("Grouper", Grouper.LDBDataObject, self.db.profile.minimap)
+
+    -- Enable VersionCheck library if present
+    do
+        local VC = LibStub and LibStub("VersionCheck-1.0", true)
+        if VC and VC.Enable then
+            VC:Enable(self)
+            if self.db and self.db.profile and self.db.profile.debug and self.db.profile.debug.enabled then
+                self:Print("DEBUG: VersionCheck-1.0 enabled for Grouper")
+            end
+        end
+    end
 
     function Grouper:UpdateLDBGroupCount()
         if not Grouper.LDBDataObject then return end
