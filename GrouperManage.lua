@@ -67,6 +67,7 @@ function Grouper:CreateGroupManageFrame(group, tabType)
     frame:SetLayout("Flow")
     
     -- Group info
+    -- No info icon in Manage tab
     local infoLabel = AceGUI:Create("Label")
     if self.db and self.db.profile and self.db.profile.debug and self.db.profile.debug.enabled then
         self:Print("DEBUG: [CreateGroupManageFrame] Rendering group.members for group " .. tostring(group.id))
