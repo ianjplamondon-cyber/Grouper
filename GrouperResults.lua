@@ -167,7 +167,18 @@ function Grouper:CreateGroupFrame(group, tabType)
     if tabType == "results" then
         local whisperButton = AceGUI:Create("Button")
         whisperButton:SetText("Whisper Leader")
-        whisperButton:SetWidth(120)
+    whisperButton:SetWidth(140)
+        -- Tooltip for Whisper Leader button
+        whisperButton.frame:EnableMouse(true)
+        whisperButton.frame:SetScript("OnEnter", function()
+            GameTooltip:SetOwner(whisperButton.frame, "ANCHOR_TOP")
+            GameTooltip:SetText("Whisper Leader", 1, 1, 1)
+            GameTooltip:AddLine("Send a private message to the group leader.", nil, nil, nil, true)
+            GameTooltip:Show()
+        end)
+        whisperButton.frame:SetScript("OnLeave", function()
+            GameTooltip:Hide()
+        end)
         whisperButton:SetCallback("OnClick", function()
             local normalizedLeader = Grouper.NormalizeFullPlayerName(group.leader)
             local whisperText = "/tell " .. normalizedLeader .. " "
@@ -186,7 +197,18 @@ function Grouper:CreateGroupFrame(group, tabType)
 
         -- Role dropdown to the right of Auto-Join button
         local groupRoleDropdown = AceGUI:Create("Dropdown")
-        groupRoleDropdown:SetLabel("Role")
+        groupRoleDropdown:SetLabel("Select Role")
+        -- Tooltip for Select Role dropdown
+        groupRoleDropdown.frame:EnableMouse(true)
+        groupRoleDropdown.frame:SetScript("OnEnter", function()
+            GameTooltip:SetOwner(groupRoleDropdown.frame, "ANCHOR_TOP")
+            GameTooltip:SetText("Select Role", 1, 1, 1)
+            GameTooltip:AddLine("Choose your preferred role for joining this group.", nil, nil, nil, true)
+            GameTooltip:Show()
+        end)
+        groupRoleDropdown.frame:SetScript("OnLeave", function()
+            GameTooltip:Hide()
+        end)
         groupRoleDropdown:SetList({
             tank = "Tank",
             healer = "Healer",
@@ -212,7 +234,18 @@ function Grouper:CreateGroupFrame(group, tabType)
 
         local autoJoinButton = AceGUI:Create("Button")
         autoJoinButton:SetText("Auto-Join")
-        autoJoinButton:SetWidth(120)
+    autoJoinButton:SetWidth(140)
+        -- Tooltip for Auto-Join button
+        autoJoinButton.frame:EnableMouse(true)
+        autoJoinButton.frame:SetScript("OnEnter", function()
+            GameTooltip:SetOwner(autoJoinButton.frame, "ANCHOR_TOP")
+            GameTooltip:SetText("Auto-Join", 1, 1, 1)
+            GameTooltip:AddLine("Request to join this group automatically.", nil, nil, nil, true)
+            GameTooltip:Show()
+        end)
+        autoJoinButton.frame:SetScript("OnLeave", function()
+            GameTooltip:Hide()
+        end)
         autoJoinButton:SetCallback("OnClick", function()
             if self.db and self.db.profile and self.db.profile.debug and self.db.profile.debug.enabled then
                 self:Print("DEBUG: Auto-Join button clicked!")
