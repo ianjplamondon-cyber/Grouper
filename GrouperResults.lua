@@ -16,9 +16,35 @@ end
 -- Create group frames in the results tab
 function Grouper:CreateGroupFrame(group, tabType)
     local frame = AceGUI:Create("InlineGroup")
+    -- Use AceGUI Label widget for info icon and tooltip
     frame:SetTitle(group.title)
+    -- Prevent tooltips from showing on the group title (party name)
+    if frame.titletext then
+        frame.titletext:EnableMouse(false)
+        frame.titletext:SetScript("OnEnter", nil)
+        frame.titletext:SetScript("OnLeave", nil)
+    end
     frame:SetFullWidth(true)
     frame:SetLayout("Flow")
+    local infoIcon = AceGUI:Create("Label")
+    -- Use a treasure chest icon for an adventurous feel
+    infoIcon:SetText("|TInterface\\Icons\\INV_Misc_Map_01:16:16:0:0|t")
+    infoIcon:SetWidth(18)
+    infoIcon:SetHeight(18)
+    infoIcon:SetImageSize(16, 16)
+    infoIcon:SetFontObject(GameFontNormal)
+    infoIcon.frame:EnableMouse(true)
+    infoIcon.frame:SetScript("OnEnter", function()
+        GameTooltip:SetOwner(infoIcon.frame, "ANCHOR_TOP")
+        GameTooltip:SetText("Ready for adventure? Click Auto-Join and let the dungeon delving begin!", 1, 0.82, 0)
+        GameTooltip:AddLine("(Loot, glory, and maybe a wipe await.)", 0.9, 0.8, 0.5, true)
+        GameTooltip:Show()
+    end)
+    infoIcon.frame:SetScript("OnLeave", function()
+        GameTooltip:Hide()
+    end)
+    -- Add the info icon as the first child to the group frame for top-right placement
+    frame:AddChild(infoIcon)
 
     -- Group info
     local infoLabel = AceGUI:Create("Label")
@@ -50,6 +76,12 @@ function Grouper:CreateGroupFrame(group, tabType)
     -- Party member fields
     local membersGroup = AceGUI:Create("InlineGroup")
     membersGroup:SetTitle("Party Members")
+    -- Prevent tooltips from showing on the 'Party Members' title
+    if membersGroup.titletext then
+        membersGroup.titletext:EnableMouse(false)
+        membersGroup.titletext:SetScript("OnEnter", nil)
+        membersGroup.titletext:SetScript("OnLeave", nil)
+    end
     membersGroup:SetFullWidth(true)
     membersGroup:SetLayout("List")
     -- WoW class colors
@@ -106,6 +138,10 @@ function Grouper:CreateGroupFrame(group, tabType)
                 local label = AceGUI:Create("Label")
                 label:SetWidth(470)
                 label:SetText(string.format("%s|cff%s%s|r | %s | %s | %s | %d", crown, color, member.name or "?", className, roleText, raceName, member.level or 0))
+                -- Prevent tooltips from showing on member labels
+                label.frame:EnableMouse(true)
+                label.frame:SetScript("OnEnter", function() GameTooltip:Hide() end)
+                label.frame:SetScript("OnLeave", function() GameTooltip:Hide() end)
                 rowGroup:AddChild(label)
             else
                 local label = AceGUI:Create("Label")

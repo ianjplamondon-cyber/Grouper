@@ -106,6 +106,12 @@ function Grouper:CreateGroupManageFrame(group, tabType)
     -- Party member fields
     local membersGroup = AceGUI:Create("InlineGroup")
     membersGroup:SetTitle("Party Members")
+    -- Prevent tooltips from showing on the 'Party Members' title
+    if membersGroup.titletext then
+        membersGroup.titletext:EnableMouse(false)
+        membersGroup.titletext:SetScript("OnEnter", nil)
+        membersGroup.titletext:SetScript("OnLeave", nil)
+    end
     membersGroup:SetFullWidth(true)
     membersGroup:SetLayout("List")
     -- WoW class colors
@@ -170,6 +176,10 @@ function Grouper:CreateGroupManageFrame(group, tabType)
                 local label = AceGUI:Create("Label")
                 label:SetWidth(470)
                 label:SetText(string.format("%s|cff%s%s|r | %s | %s | %s | %d", crown, color, member.name or "?", className, roleText, raceName, member.level or 0))
+                -- Prevent tooltips from showing on member labels
+                label.frame:EnableMouse(true)
+                label.frame:SetScript("OnEnter", function() GameTooltip:Hide() end)
+                label.frame:SetScript("OnLeave", function() GameTooltip:Hide() end)
                 rowGroup:AddChild(label)
             else
                 local label = AceGUI:Create("Label")
@@ -240,6 +250,17 @@ function Grouper:CreateGroupManageFrame(group, tabType)
             local editButton = AceGUI:Create("Button")
             editButton:SetText("Edit")
             editButton:SetWidth(100)
+            -- Tooltip for Edit button
+            if editButton.frame then
+                editButton.frame:HookScript("OnEnter", function()
+                    GameTooltip:SetOwner(editButton.frame, "ANCHOR_RIGHT")
+                    GameTooltip:SetText("Edit this group's settings.", 1, 1, 1)
+                    GameTooltip:Show()
+                end)
+                editButton.frame:HookScript("OnLeave", function()
+                    GameTooltip:Hide()
+                end)
+            end
             editButton:SetCallback("OnClick", function()
                 self:ShowEditGroupDialog(group)
             end)
@@ -248,6 +269,17 @@ function Grouper:CreateGroupManageFrame(group, tabType)
             local removeButton = AceGUI:Create("Button")
             removeButton:SetText("Remove")
             removeButton:SetWidth(100)
+            -- Tooltip for Remove button
+            if removeButton.frame then
+                removeButton.frame:HookScript("OnEnter", function()
+                    GameTooltip:SetOwner(removeButton.frame, "ANCHOR_RIGHT")
+                    GameTooltip:SetText("Remove this group from the Grouper listing.", 1, 1, 1)
+                    GameTooltip:Show()
+                end)
+                removeButton.frame:HookScript("OnLeave", function()
+                    GameTooltip:Hide()
+                end)
+            end
             removeButton:SetCallback("OnClick", function()
                 -- Find the group key by matching group.id to the key in self.groups
                 local groupKey = nil
@@ -271,6 +303,17 @@ function Grouper:CreateGroupManageFrame(group, tabType)
             local syncButton = AceGUI:Create("Button")
             syncButton:SetText("Sync")
             syncButton:SetWidth(100)
+            -- Tooltip for Sync button
+            if syncButton.frame then
+                syncButton.frame:HookScript("OnEnter", function()
+                    GameTooltip:SetOwner(syncButton.frame, "ANCHOR_RIGHT")
+                    GameTooltip:SetText("Broadcast your group info to other Grouper users.", 1, 1, 1)
+                    GameTooltip:Show()
+                end)
+                syncButton.frame:HookScript("OnLeave", function()
+                    GameTooltip:Hide()
+                end)
+            end
             syncButton:SetCallback("OnClick", function()
                 if self.db and self.db.profile and self.db.profile.debug and self.db.profile.debug.enabled then
                     self:Print("DEBUG: Sync button clicked! Broadcasting group update...")
