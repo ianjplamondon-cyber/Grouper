@@ -13,11 +13,35 @@ function Grouper:CreateCreateTab(container)
     titleEdit:SetMaxLetters(20)
     titleEdit:SetText("")
     if titleEdit.DisableButton then titleEdit:DisableButton(true) end
+    -- Tooltip for Group Title edit box
+    if titleEdit.label then
+        titleEdit.label:EnableMouse(true)
+        titleEdit.label:SetScript("OnEnter", function()
+            GameTooltip:SetOwner(titleEdit.label, "ANCHOR_TOP")
+            GameTooltip:SetText("Group Title", 1, 1, 1)
+            GameTooltip:AddLine("Enter a short, descriptive name for your group (max 20 characters).", nil, nil, nil, true)
+            GameTooltip:Show()
+        end)
+        titleEdit.label:SetScript("OnLeave", function()
+            GameTooltip:Hide()
+        end)
+    end
     scrollFrame:AddChild(titleEdit)
     
     -- Event type dropdown (encoded as numbers when sent)
     local typeDropdown = AceGUI:Create("Dropdown")
     typeDropdown:SetLabel("Event Type")
+    -- Tooltip for Event Type dropdown
+    typeDropdown.frame:EnableMouse(true)
+    typeDropdown.frame:SetScript("OnEnter", function()
+        GameTooltip:SetOwner(typeDropdown.frame, "ANCHOR_TOP")
+        GameTooltip:SetText("Event Type", 1, 1, 1)
+        GameTooltip:AddLine("Select the type of group you are creating (Dungeon, Quest, or Other).", nil, nil, nil, true)
+        GameTooltip:Show()
+    end)
+    typeDropdown.frame:SetScript("OnLeave", function()
+        GameTooltip:Hide()
+    end)
     typeDropdown:SetList({
         dungeon = "Dungeon",
         --raid = "Raid",
@@ -49,7 +73,20 @@ function Grouper:CreateCreateTab(container)
     --]]
     -- Dungeon selection (multi-select) - filtered by type dropdown
     local dungeonGroup = AceGUI:Create("InlineGroup")
-    dungeonGroup:SetTitle("Select Dungeons/Raids/Battlegrounds")
+    dungeonGroup:SetTitle("Select Dungeon")
+    -- Tooltip for Select Dungeon group title
+    if dungeonGroup.titletext then
+        dungeonGroup.titletext:EnableMouse(true)
+        dungeonGroup.titletext:SetScript("OnEnter", function()
+            GameTooltip:SetOwner(dungeonGroup.titletext, "ANCHOR_TOP")
+            GameTooltip:SetText("Select Dungeon", 1, 1, 1)
+            GameTooltip:AddLine("Choose the dungeon for your group. Only one can be selected.", nil, nil, nil, true)
+            GameTooltip:Show()
+        end)
+        dungeonGroup.titletext:SetScript("OnLeave", function()
+            GameTooltip:Hide()
+        end)
+    end
     dungeonGroup:SetFullWidth(true)
     dungeonGroup:SetLayout("Flow")
     scrollFrame:AddChild(dungeonGroup)
@@ -75,7 +112,25 @@ function Grouper:CreateCreateTab(container)
                 local checkbox = AceGUI:Create("CheckBox")
                 checkbox:SetLabel(string.format("%s (%d-%d)", dungeon.name, dungeon.minLevel, dungeon.maxLevel))
                 checkbox:SetWidth(300)
-                
+                -- Tooltip for each dungeon using DUNGEON_INFO
+                local info = DUNGEON_INFO and DUNGEON_INFO[dungeon.name]
+                if info and checkbox.frame then
+                    checkbox.frame:EnableMouse(true)
+                    checkbox.frame:SetScript("OnEnter", function()
+                        GameTooltip:SetOwner(checkbox.frame, "ANCHOR_TOP")
+                        GameTooltip:SetText(dungeon.name, 1, 1, 1)
+                        if info.description then
+                            GameTooltip:AddLine(info.description, nil, nil, nil, true)
+                        end
+                        if info.location then
+                            GameTooltip:AddLine("Location: " .. info.location, 0.8, 0.8, 0.8, true)
+                        end
+                        GameTooltip:Show()
+                    end)
+                    checkbox.frame:SetScript("OnLeave", function()
+                        GameTooltip:Hide()
+                    end)
+                end
                 -- Store bracket group for this battleground
                 local bracketGroup = nil
                 local bracketCheckboxes = {}
@@ -223,6 +278,19 @@ function Grouper:CreateCreateTab(container)
     locationEdit:SetMaxLetters(20)
     locationEdit:SetText("")
     if locationEdit.DisableButton then locationEdit:DisableButton(true) end
+    -- Tooltip for Location/Meeting Point field
+    if locationEdit.label then
+        locationEdit.label:EnableMouse(true)
+        locationEdit.label:SetScript("OnEnter", function()
+            GameTooltip:SetOwner(locationEdit.label, "ANCHOR_TOP")
+            GameTooltip:SetText("Location/Meeting Point", 1, 1, 1)
+            GameTooltip:AddLine("Specify where your group will meet (e.g., dungeon entrance, city, or custom spot).", nil, nil, nil, true)
+            GameTooltip:Show()
+        end)
+        locationEdit.label:SetScript("OnLeave", function()
+            GameTooltip:Hide()
+        end)
+    end
     scrollFrame:AddChild(locationEdit)
     
     -- My role dropdown
@@ -241,6 +309,19 @@ function Grouper:CreateCreateTab(container)
         roleDropdown:SetValue("dps")
     end
     roleDropdown:SetFullWidth(true)
+    -- Tooltip for My Role dropdown
+    if roleDropdown.label then
+        roleDropdown.label:EnableMouse(true)
+        roleDropdown.label:SetScript("OnEnter", function()
+            GameTooltip:SetOwner(roleDropdown.label, "ANCHOR_TOP")
+            GameTooltip:SetText("My Role", 1, 1, 1)
+            GameTooltip:AddLine("Select the role you want to fill in the group you are creating (Tank, Healer, or DPS).", nil, nil, nil, true)
+            GameTooltip:Show()
+        end)
+        roleDropdown.label:SetScript("OnLeave", function()
+            GameTooltip:Hide()
+        end)
+    end
     scrollFrame:AddChild(roleDropdown)
     -- Save role to SV on change
     roleDropdown:SetCallback("OnValueChanged", function(widget, event, value)
@@ -253,6 +334,17 @@ function Grouper:CreateCreateTab(container)
     local createButton = AceGUI:Create("Button")
     createButton:SetText("Create Group")
     createButton:SetFullWidth(true)
+    -- Tooltip for Create Group button
+    if createButton.frame then
+        createButton.frame:HookScript("OnEnter", function()
+            GameTooltip:SetOwner(createButton.frame, "ANCHOR_RIGHT")
+            GameTooltip:SetText("Create a new group with the above settings.", 1, 1, 1)
+            GameTooltip:Show()
+        end)
+        createButton.frame:HookScript("OnLeave", function()
+            GameTooltip:Hide()
+        end)
+    end
     createButton:SetCallback("OnClick", function()
         local selectedType = typeDropdown:GetValue()
 
