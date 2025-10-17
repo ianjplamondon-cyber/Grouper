@@ -189,6 +189,18 @@ function Grouper:CreateBrowseTab(container)
     local refreshButton = AceGUI:Create("Button")
     refreshButton:SetText("Search")
     refreshButton:SetWidth(80)
+    -- Tooltip for Search button
+    local searchTooltip = "Click to refresh the group list based on your current filters. Requests new data from other players."
+    refreshButton.frame:EnableMouse(true)
+    refreshButton.frame:SetScript("OnEnter", function()
+        GameTooltip:SetOwner(refreshButton.frame, "ANCHOR_TOP")
+        GameTooltip:SetText("Search", 1, 1, 1)
+        GameTooltip:AddLine(searchTooltip, nil, nil, nil, true)
+        GameTooltip:Show()
+    end)
+    refreshButton.frame:SetScript("OnLeave", function()
+        GameTooltip:Hide()
+    end)
     refreshButton:SetCallback("OnClick", function()
         if self.db.profile.debug.enabled then
             self:Print("DEBUG: Refresh button clicked - requesting fresh data from other players")
@@ -214,7 +226,6 @@ function Grouper:CreateBrowseTab(container)
             end, 10)
             --]]
         end
-        
         --[[
         -- Also schedule a delayed refresh
         self:ScheduleTimer(function()
