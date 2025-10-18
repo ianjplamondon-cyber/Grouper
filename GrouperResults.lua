@@ -136,7 +136,7 @@ function Grouper:CreateGroupFrame(group, tabType)
                     crown = "|TInterface\\GroupFrame\\UI-Group-LeaderIcon:16:16:0:4|t "
                 end
                 local label = AceGUI:Create("Label")
-                label:SetWidth(470)
+                label:SetFullWidth(true)
                 label:SetText(string.format("%s|cff%s%s|r | %s | %s | %s | %d", crown, color, member.name or "?", className, roleText, raceName, member.level or 0))
                 -- Prevent tooltips from showing on member labels
                 label.frame:EnableMouse(true)
@@ -145,7 +145,7 @@ function Grouper:CreateGroupFrame(group, tabType)
                 rowGroup:AddChild(label)
             else
                 local label = AceGUI:Create("Label")
-                label:SetWidth(470)
+                label:SetFullWidth(true)
                 local slotText = "- Empty Slot -"
                 if i == 1 then
                     slotText = "<Tank>"
@@ -176,7 +176,7 @@ function Grouper:CreateGroupFrame(group, tabType)
                 local color = CLASS_COLORS[string.upper(className)] or "FFFFFF"
                 local roleText = member.role or "?"
                 local label = AceGUI:Create("Label")
-                label:SetWidth(470)
+                label:SetFullWidth(true)
                 local crown = ""
                 if member.leader == "yes" or (Grouper.GetFullPlayerName and group.leader and Grouper.GetFullPlayerName(member.name, member.realm) == Grouper.GetFullPlayerName(group.leader)) then
                     crown = "|TInterface\\GroupFrame\\UI-Group-LeaderIcon:16:16:0:0|t "
@@ -187,7 +187,7 @@ function Grouper:CreateGroupFrame(group, tabType)
             end
         else
             local label = AceGUI:Create("Label")
-            label:SetWidth(250)
+            label:SetFullWidth(true)
             label:SetText("No members found.")
             membersGroup:AddChild(label)
         end
